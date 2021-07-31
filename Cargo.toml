@@ -2,17 +2,16 @@
 name = "bitbag"
 version = "0.1.0"
 edition = "2018"
-
-[lib]
-proc-macro = true
+description = "A useful struct for dealing with bit flags"
+license = "MIT"
+repository = "https://github.com/aatifsyed/bitbag"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 derive_more = "0.99.16"
-log = "0.4.14"
 num = "0.4.0"
-pretty_env_logger = "0.4.0"
-quote = "1.0.9"
 strum = { version = "0.21.0", features = ["derive"] }
-syn = { version = "1.0.74", features = ["extra-traits"] }
+
+[dev-dependencies]
+anyhow = "1.0.42"
