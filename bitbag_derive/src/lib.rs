@@ -1,16 +1,19 @@
 use log::{debug, trace};
 use pretty_env_logger;
 use proc_macro::TokenStream;
+use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Meta, NestedMeta};
 
+/// Derives BitBaggable for a field-less enum
+#[proc_macro_error]
 #[proc_macro_derive(BitBaggable)]
 pub fn derive(input: TokenStream) -> TokenStream {
-    pretty_env_logger::init();
+    pretty_env_logger::try_init().ok();
     let user_struct = parse_macro_input!(input as DeriveInput);
     debug!("{:#?}", user_struct);
 
-    if let syn::Data::Enum(_user_enum) = user_struct.data {
+    if let syn::Data::Enum(ref _user_enum) = user_struct.data {
         // Pull out the `u8` in `#[repr(u8)]`
         if let Some(repr) = user_struct.attrs.iter().find_map(|attribute| {
             trace!("inspecting attribute: {:?}", attribute);
@@ -28,17 +31,19 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 .expect("#[repr(..)] wasn't parseable as a meta attribute")
             {
                 trace!("{:#?}", meta_list);
-                assert!(
-                    meta_list.nested.len() == 1,
-                    "#[repr(..)] expected to have a single argument"
-                );
+                if meta_list.nested.len() != 1 {
+                    abort!(attribute, "#[repr(..)] expected to have a single argument")
+                }
                 if let NestedMeta::Meta(Meta::Path(argument)) = meta_list.nested.first().unwrap() {
                     Some(argument.segments.first().unwrap().ident.clone())
                 } else {
-                    panic!("#[repr(..)] argument expected to be a single path")
+                    abort!(
+                        attribute,
+                        "#[repr(..)] argument expected to be a single path"
+                    )
                 }
             } else {
-                panic!("#[repr] attribute expected to be list-like")
+                abort!(attribute, "#[repr] attribute expected to be list-like")
             }
         }) {
             debug!("Repr is {:#?}", repr);
@@ -57,9 +62,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
             debug!("{:#?}", appended);
             appended.into()
         } else {
-            panic!("Must have a #[repr(..)] attribute")
+            abort!(user_struct, "Must have a #[repr(..)] attribute")
         }
     } else {
-        panic!("Must be an enum")
+        abort!(user_struct, "Must be an enum")
     }
 }

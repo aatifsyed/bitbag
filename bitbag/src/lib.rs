@@ -1,7 +1,66 @@
-//! This crate provides [`BitBag`], a type intended for abstracting over [field-less enums](https://doc.rust-lang.org/rust-by-example/custom_types/enum/c_like.html)
+//! This crate provides [`BitBag`], a type intended for abstracting over [field-less enums](https://doc.rust-lang.org/rust-by-example/custom_types/enum/c_like.html).
+//! Get started like this:
+//! ```
+//! use bitbag::{BitBag, BitBaggable};
+//! use strum::EnumIter;
+//!
+//! #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! #[repr(u8)]
+//! enum Flags {
+//!     A = 0b0001,
+//!     B = 0b0010,
+//!     C = 0b0100,
+//! }
+//! ```
+//! Basic functionality is provided by [`BitBag`]
+//! ```
+//! # use bitbag::{BitBag, BitBaggable};
+//! # use strum::EnumIter;
+//! # #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! # #[repr(u8)]
+//! # enum Flags {
+//! #     A = 0b0001,
+//! #     B = 0b0010,
+//! #     C = 0b0100,
+//! # }
+//! let mut bag = BitBag::<Flags>::new_unchecked(0b0011);
+//! assert!(bag.is_set(Flags::A));
+//! assert!(bag.is_set(Flags::B));
+//! assert!(!bag.is_set(Flags::C));
+//!
+//! bag.set(Flags::C);
+//! assert_eq!(*bag, 0b0111);
+//!
+//! ```
+//! Additionally deriving [`EnumIter`], and [`Copy`] will allow fallible creation, and iteration over the set flags
+//! ```
+//! # use bitbag::{BitBag, BitBaggable};
+//! # use strum::EnumIter;
+//! # #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! # #[repr(u8)]
+//! # enum Flags {
+//! #     A = 0b0001,
+//! #     B = 0b0010,
+//! #     C = 0b0100,
+//! # }
+//! let result = BitBag::<Flags>::new(0b1000);
+//! assert!(matches!(
+//!     result,
+//!     Err(e) if e.given() == 0b1000
+//! ));
+//!
+//! let bag = BitBag::<Flags>::new_unchecked(0b0110);
+//! for flag in &bag {
+//!     match flag {
+//!         Flags::A => println!("Flag A was set"),
+//!         Flags::B => println!("Flag B was set"),
+//!         Flags::C => println!("Flag C was set"),
+//!     }
+//! };
+//! ```
 
 pub use bitbag_derive::BitBaggable;
-use derive_more::{Binary, Deref};
+use derive_more::{AsRef, Binary, Deref};
 use num::{PrimInt, Zero};
 use std::{
     any::type_name,
@@ -10,21 +69,25 @@ use std::{
 };
 use strum::IntoEnumIterator;
 
-#[allow(unused_imports)] // Doc
+#[cfg(doc)]
 use std::ops::Deref;
+#[cfg(doc)]
+use strum::EnumIter;
 
-/// For an enum to be put inside a [`BitBag`]
-/// - We must tell the type system the primitive in `#[repr(primitive)]`
+/// The trait that allows an item to be placed inside a [`BitBag`].
+///
+/// The basic requirements are
+/// - We must tell the type system the `primitive` in `#[repr(primitive)]`
 /// - We must be able to convert (from any variant) into that primitive
 ///
-/// You can derive this with the [`BitBaggable`] derive macro
+/// You can derive this with the `BitBaggable` derive macro
 pub trait BitBaggable: Into<Self::Repr> {
     type Repr: PrimInt;
 }
 
 /// Wraps a primitive, with helper methods for checking flags.
 /// [`Deref`]s to the primitive if you wish to access it
-#[derive(Clone, Copy, Debug, Deref, Binary)]
+#[derive(Clone, Copy, Debug, Deref, Binary, AsRef)]
 #[repr(transparent)]
 pub struct BitBag<Flags: BitBaggable> {
     inner: Flags::Repr,
@@ -128,9 +191,9 @@ pub struct NonFlagBits<Repr> {
     mask: Repr,
 }
 
-impl<Repr> NonFlagBits<Repr> {
+impl<Repr: Copy> NonFlagBits<Repr> {
     /// The primitive which contained non-flag bits
-    pub fn given(self) -> Repr {
+    pub fn given(&self) -> Repr {
         self.given
     }
 }
