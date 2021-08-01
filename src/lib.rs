@@ -1,27 +1,36 @@
 //! This crate provides [`BitBag`], a type intended for abstracting over [field-less enums](https://doc.rust-lang.org/rust-by-example/custom_types/enum/c_like.html)
 
-use derive_more::Into;
-use num::PrimInt;
+use derive_more::Deref;
+use num::{PrimInt, Zero};
 use std::{
     any::type_name,
     fmt::{Binary, Debug, Display},
-    marker::PhantomData,
-    ops::BitAndAssign,
+    ops::{BitAnd, BitAndAssign, BitOr},
 };
 use strum::IntoEnumIterator;
 
-/// A transparent wrapper over a primitive, with helper methods for checking flags
-#[derive(Into, Clone, Copy, Debug, Default)]
-#[repr(transparent)]
-pub struct BitBag<Flag, Prim> {
-    inner: Prim,
-    flags: PhantomData<Flag>,
+#[allow(unused_imports)] // Doc
+use std::ops::Deref;
+
+/// For an enum to be put inside a [`BitBag`]
+/// - We must tell the type system the primitive in `#[repr(primitive)]`
+/// - We must be able to convert (from any variant) into that primitive
+pub trait BitBaggable: Into<Self::Repr> {
+    type Repr: PrimInt;
 }
 
-impl<Flag, Prim> BitBag<Flag, Prim>
+/// Wraps a primitive, with helper methods for checking flags.
+/// [`Deref`]s to the primitive if you wish to access it
+#[derive(Clone, Copy, Debug, Default, Deref)]
+#[repr(transparent)]
+pub struct BitBag<Flags: BitBaggable> {
+    inner: Flags::Repr,
+}
+
+impl<Flag: BitBaggable> BitBag<Flag>
 where
-    Prim: PrimInt + BitAndAssign<Prim>,
-    Flag: Into<Prim> + Copy,
+    Flag::Repr: BitAndAssign<Flag::Repr>,
+    BitBag<Flag>: Copy,
 {
     /// Return `true` if the flag is set
     pub fn is_set(&self, flag: Flag) -> bool {
@@ -29,64 +38,56 @@ where
         self.inner.bitand(flag) == flag
     }
     /// Set the flag
-    pub fn set(&mut self, flag: Flag) {
+    pub fn set(&mut self, flag: Flag) -> Self {
         let flag = flag.into();
         self.inner.bitand_assign(flag);
+        *self
     }
     /// Unset the flag
-    pub fn unset(&mut self, flag: Flag) {
+    pub fn unset(&mut self, flag: Flag) -> Self {
         let flag = flag.into();
         self.inner.bitand_assign(!flag);
+        *self
     }
     /// Unset all flags
-    pub fn clear_all(&mut self) {
-        self.inner.set_zero()
+    pub fn clear_all(&mut self) -> Self {
+        self.inner.set_zero();
+        *self
     }
     /// Don't check the primitive for non-flag bits
-    pub fn new_unchecked(prim: Prim) -> Self {
-        Self {
-            inner: prim,
-            flags: PhantomData,
-        }
+    pub fn new_unchecked(prim: Flag::Repr) -> Self {
+        Self { inner: prim }
     }
 }
 
-impl<Flag, Prim> BitBag<Flag, Prim>
+impl<Flag: BitBaggable> BitBag<Flag>
 where
-    Prim: PrimInt + BitAndAssign<Prim>,
-    Flag: Into<Prim> + IntoEnumIterator,
+    Flag: IntoEnumIterator,
 {
-    /// Check the bits of `prim`, and return an [`InvalidFlag`] error if it has bits set
-    /// which can't be represented by a flag.
-
-    pub fn new(prim: Prim) -> Result<Self, InvalidFlag<Flag, Prim>> {
+    /// Check the bits of `prim`, and return an [`NonFlagBits`] error if it has bits set which can't be represented by a flag.
+    ///
+    /// Note that the [IntoIterator<Item = Flag>] must cycle through the enum variants for this to function correctly
+    pub fn new(prim: Flag::Repr) -> Result<Self, NonFlagBits<Flag::Repr>> {
         let mask = Flag::iter()
             .map(Into::into)
-            .fold(Prim::zero(), |accumulator, element| {
+            .fold(Flag::Repr::zero(), |accumulator, element| {
                 accumulator.bitor(element)
             });
         match mask.bitor(prim) == mask {
-            true => Ok(Self {
-                inner: prim,
-                flags: PhantomData,
-            }),
-            false => Err(InvalidFlag {
-                given: prim,
-                mask,
-                flags: PhantomData,
-            }),
+            true => Ok(Self { inner: prim }),
+            false => Err(NonFlagBits { given: prim, mask }),
         }
     }
 }
 
-impl<Flag, Prim> IntoIterator for BitBag<Flag, Prim>
+impl<Flag: BitBaggable> IntoIterator for BitBag<Flag>
 where
-    Prim: PrimInt + BitAndAssign<Prim>,
-    Flag: Into<Prim> + IntoEnumIterator + Copy,
+    Flag: IntoEnumIterator + Copy,
+    Flag::Repr: BitAndAssign,
 {
     type Item = Flag;
 
-    type IntoIter = BitBagIterator<Flag, Prim>;
+    type IntoIter = BitBagIterator<Flag>;
 
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter {
@@ -95,15 +96,15 @@ where
         }
     }
 }
-
-impl<Flag, Prim> IntoIterator for &BitBag<Flag, Prim>
+impl<Flag: BitBaggable> IntoIterator for &BitBag<Flag>
 where
-    Prim: PrimInt + BitAndAssign<Prim>,
-    Flag: Into<Prim> + IntoEnumIterator + Copy,
+    Flag: IntoEnumIterator + Copy,
+    Flag::Repr: BitAndAssign,
+    BitBag<Flag>: Copy,
 {
     type Item = Flag;
 
-    type IntoIter = BitBagIterator<Flag, Prim>;
+    type IntoIter = BitBagIterator<Flag>;
 
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter {
@@ -114,46 +115,45 @@ where
 }
 
 #[derive(Debug)]
-pub struct InvalidFlag<Flag, Prim> {
-    given: Prim,
-    mask: Prim,
-    flags: PhantomData<Flag>,
+pub struct NonFlagBits<Repr> {
+    given: Repr,
+    mask: Repr,
 }
 
-impl<Flag, Prim> InvalidFlag<Flag, Prim> {
+impl<Repr> NonFlagBits<Repr> {
     /// The primitive which contained non-flag bits
-    pub fn given(self) -> Prim {
+    pub fn given(self) -> Repr {
         self.given
     }
 }
 
-impl<Flag, Prim: PrimInt + Binary> Display for InvalidFlag<Flag, Prim> {
+impl<Repr: PrimInt + Binary> Display for NonFlagBits<Repr> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let excess = self.given.bitor(self.mask).bitxor(self.mask);
         write!(
             f,
             "The bits {:#b} are not accounted for in the enum {}",
             excess,
-            type_name::<Flag>()
+            type_name::<Repr>()
         )
     }
 }
 
-impl<Flag: Debug, Prim: Debug + PrimInt + Binary> std::error::Error for InvalidFlag<Flag, Prim> {}
+impl<Repr: Debug + PrimInt + Binary> std::error::Error for NonFlagBits<Repr> {}
 
-pub struct BitBagIterator<Flag, Prim>
+pub struct BitBagIterator<Flag: BitBaggable>
 where
-    Prim: PrimInt + BitAndAssign<Prim>,
-    Flag: Into<Prim> + IntoEnumIterator,
+    Flag: IntoEnumIterator,
 {
-    bag: BitBag<Flag, Prim>,
+    bag: BitBag<Flag>,
     flags_iterator: <Flag as IntoEnumIterator>::Iterator,
 }
 
-impl<Flag, Prim> Iterator for BitBagIterator<Flag, Prim>
+impl<Flag: BitBaggable> Iterator for BitBagIterator<Flag>
 where
-    Prim: PrimInt + BitAndAssign<Prim>,
-    Flag: Into<Prim> + IntoEnumIterator + Copy,
+    Flag: IntoEnumIterator,
+    Flag: Copy,
+    Flag::Repr: BitAndAssign,
 {
     type Item = Flag;
 
@@ -184,6 +184,10 @@ mod tests {
         D = 0b0000_1000,
     }
 
+    impl BitBaggable for FooFlags {
+        type Repr = u8;
+    }
+
     impl Into<u8> for FooFlags {
         fn into(self) -> u8 {
             self as _
@@ -192,7 +196,7 @@ mod tests {
 
     #[test]
     fn new_single_flag() -> Result<()> {
-        let bag = BitBag::<FooFlags, _>::new(0b0000_0001)?;
+        let bag = BitBag::<FooFlags>::new(0b0000_0001)?;
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
@@ -201,7 +205,7 @@ mod tests {
 
     #[test]
     fn new_multiple_flags() -> Result<()> {
-        let bag = BitBag::<FooFlags, _>::new(0b0000_1101)?;
+        let bag = BitBag::<FooFlags>::new(0b0000_1101)?;
         let flags = bag.into_iter().collect::<HashSet<_>>();
         assert!(flags.len() == 3);
         assert!(flags.contains(&FooFlags::A));
@@ -212,21 +216,21 @@ mod tests {
 
     #[test]
     fn fail_new_single_non_flag() -> Result<()> {
-        let res = BitBag::<FooFlags, _>::new(0b1000_0000);
+        let res = BitBag::<FooFlags>::new(0b1000_0000);
         assert!(matches!(res, Err(_)));
         Ok(())
     }
 
     #[test]
     fn fail_new_mixed() -> Result<()> {
-        let res = BitBag::<FooFlags, _>::new(0b1000_0001);
+        let res = BitBag::<FooFlags>::new(0b1000_0001);
         assert!(matches!(res, Err(_)));
         Ok(())
     }
 
     #[test]
     fn unchecked() -> Result<()> {
-        let bag = BitBag::<FooFlags, _>::new_unchecked(0b1000_0001);
+        let bag = BitBag::<FooFlags>::new_unchecked(0b1000_0001);
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
