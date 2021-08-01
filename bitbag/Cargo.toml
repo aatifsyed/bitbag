@@ -1,0 +1,18 @@
+[package]
+name = "bitbag"
+version = "0.1.0"
+edition = "2018"
+description = "A useful struct for dealing with bit flags"
+license = "MIT"
+repository = "https://github.com/aatifsyed/bitbag"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+derive_more = "0.99.16"
+num = "0.4.0"
+strum = { version = "0.21.0", features = ["derive"] }
+bitbag_derive = { path = "../bitbag_derive" }
+
+[dev-dependencies]
+anyhow = "1.0.42"
