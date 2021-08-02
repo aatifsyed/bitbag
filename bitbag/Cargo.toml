@@ -1,12 +1,15 @@
 [package]
 name = "bitbag"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2018"
 description = "A useful struct for dealing with bit flags"
 license = "MIT"
 repository = "https://github.com/aatifsyed/bitbag"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+documentation = "https://docs.rs/bitbag"
+authors = ["Aatif Syed <aatif@aatifsyed.uk>"]
+# generate the readme with:
+# cargo readme --project-root bitbag --template ../README.tpl > README.md
+readme = "../README.md"
 
 [dependencies]
 derive_more = "0.99.16"
