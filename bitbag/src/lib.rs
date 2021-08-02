@@ -1,4 +1,4 @@
-//! This crate provides [`BitBag`], a type intended for abstracting over [field-less enums](https://doc.rust-lang.org/rust-by-example/custom_types/enum/c_like.html).
+//! This crate provides [`BitBag`], a type intended for tracking bitflags defined in a [field-less enum](https://doc.rust-lang.org/rust-by-example/custom_types/enum/c_like.html).
 //! Get started like this:
 //! ```
 //! use bitbag::{BitBag, BitBaggable};
