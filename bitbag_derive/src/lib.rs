@@ -3,9 +3,11 @@ use pretty_env_logger;
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
+#[cfg(doc)]
+use std::ops::BitOr;
 use syn::{parse_macro_input, DeriveInput, Meta, NestedMeta};
 
-/// Derives BitBaggable for a field-less enum
+/// Derives BitBaggable and [`BitOr`] for a field-less enum.
 #[proc_macro_error]
 #[proc_macro_derive(BitBaggable)]
 pub fn derive(input: TokenStream) -> TokenStream {
@@ -57,6 +59,17 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
                 impl bitbag::BitBaggable for #user_ident {
                     type Repr = #repr;
+                }
+
+                impl std::ops::BitOr for #user_ident {
+                    type Output = bitbag::BitBag<#user_ident>;
+
+                    fn bitor(self, rhs: Self) -> Self::Output {
+                        let mut bag = <Self::Output as Default>::default();
+                        bag.set(self);
+                        bag.set(rhs);
+                        bag
+                    }
                 }
             };
             debug!("{:#?}", appended);

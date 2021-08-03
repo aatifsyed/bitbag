@@ -32,6 +32,23 @@
 //! assert_eq!(*bag, 0b0111);
 //!
 //! ```
+//! Deriving [`BitBaggable`] will also give you very ergonomic constructors
+//! ```
+//! # use bitbag::{BitBag, BitBaggable};
+//! # use strum::EnumIter;
+//! # #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! # #[repr(u8)]
+//! # enum Flags {
+//! #     A = 0b0001,
+//! #     B = 0b0010,
+//! #     C = 0b0100,
+//! # }
+//! use Flags::*;
+//! let bag = A | B | C;
+//! assert!(bag.is_set(Flags::A));
+//! assert!(bag.is_set(Flags::B));
+//! assert!(bag.is_set(Flags::C));
+//! ```
 //! Additionally deriving [`EnumIter`], and [`Copy`] will allow fallible creation, and iteration over the set flags
 //! ```
 //! # use bitbag::{BitBag, BitBaggable};
@@ -43,6 +60,7 @@
 //! #     B = 0b0010,
 //! #     C = 0b0100,
 //! # }
+//! //                                  ⬇ this bit is not defined in Flags
 //! let result = BitBag::<Flags>::new(0b1000);
 //! assert!(matches!(
 //!     result,
@@ -58,7 +76,8 @@
 //!     }
 //! };
 //! ```
-
+mod bitwise;
+mod iter;
 pub use bitbag_derive::BitBaggable;
 use derive_more::{AsRef, Binary, Deref};
 use num::{PrimInt, Zero};
@@ -94,6 +113,7 @@ pub struct BitBag<Flags: BitBaggable> {
 }
 
 impl<Flags: BitBaggable> Default for BitBag<Flags> {
+    /// The default has no flags set
     fn default() -> Self {
         Self {
             inner: Zero::zero(),
@@ -136,6 +156,7 @@ where
 impl<Flag: BitBaggable> BitBag<Flag>
 where
     Flag: IntoEnumIterator,
+    Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
 {
     /// Check the bits of `prim`, and return an [`NonFlagBits`] error if it has bits set which can't be represented by a flag.
     pub fn new(prim: Flag::Repr) -> Result<Self, NonFlagBits<Flag::Repr>> {
@@ -149,42 +170,17 @@ where
             false => Err(NonFlagBits { given: prim, mask }),
         }
     }
-}
 
-impl<Flag: BitBaggable> IntoIterator for BitBag<Flag>
-where
-    Flag: IntoEnumIterator + Copy,
-    Flag::Repr: BitAndAssign + BitOrAssign,
-{
-    type Item = Flag;
-
-    type IntoIter = BitBagIterator<Flag>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Self::IntoIter {
-            bag: self,
-            flags_iterator: Flag::iter(),
+    /// Set all flags defined in the enum
+    pub fn set_all(&mut self) -> &mut Self {
+        for flag in Flag::iter() {
+            self.set(flag);
         }
-    }
-}
-impl<Flag: BitBaggable> IntoIterator for &BitBag<Flag>
-where
-    Flag: IntoEnumIterator + Copy,
-    Flag::Repr: BitAndAssign + BitOrAssign,
-    BitBag<Flag>: Copy,
-{
-    type Item = Flag;
-
-    type IntoIter = BitBagIterator<Flag>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Self::IntoIter {
-            bag: *self,
-            flags_iterator: Flag::iter(),
-        }
+        self
     }
 }
 
+/// The error returned when creating a [`BitBag`] from a primitive which contains bits set which aren't represented by flags
 #[derive(Debug)]
 pub struct NonFlagBits<Repr> {
     given: Repr,
@@ -212,34 +208,8 @@ impl<Repr: PrimInt + Binary> Display for NonFlagBits<Repr> {
 
 impl<Repr: Debug + PrimInt + Binary> std::error::Error for NonFlagBits<Repr> {}
 
-pub struct BitBagIterator<Flag: BitBaggable>
-where
-    Flag: IntoEnumIterator,
-{
-    bag: BitBag<Flag>,
-    flags_iterator: <Flag as IntoEnumIterator>::Iterator,
-}
-
-impl<Flag: BitBaggable> Iterator for BitBagIterator<Flag>
-where
-    Flag: IntoEnumIterator,
-    Flag: Copy,
-    Flag::Repr: BitAndAssign + BitOrAssign,
-{
-    type Item = Flag;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(flag) = self.flags_iterator.next() {
-            if self.bag.is_set(flag) {
-                return Some(flag);
-            }
-        }
-        None
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashSet;
 
     use super::*;
@@ -249,7 +219,7 @@ mod tests {
 
     #[derive(Debug, Copy, Clone, EnumIter, PartialEq, Eq, Hash, BitBaggable)]
     #[repr(u8)]
-    enum FooFlags {
+    pub enum FooFlags {
         A = 0b0000_0001,
         B = 0b0000_0010,
         C = 0b0000_0100,
@@ -277,41 +247,36 @@ mod tests {
     }
 
     #[test]
-    fn fail_new_single_non_flag() -> Result<()> {
+    fn fail_new_single_non_flag() {
         let res = BitBag::<FooFlags>::new(0b1000_0000);
         assert!(matches!(res, Err(_)));
-        Ok(())
     }
 
     #[test]
-    fn fail_new_mixed() -> Result<()> {
+    fn fail_new_mixed() {
         let res = BitBag::<FooFlags>::new(0b1000_0001);
         assert!(matches!(res, Err(_)));
-        Ok(())
     }
 
     #[test]
-    fn unchecked() -> Result<()> {
+    fn unchecked() {
         let bag = BitBag::<FooFlags>::new_unchecked(0b1000_0001);
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
-        Ok(())
     }
 
     #[test]
-    fn manually_set() -> Result<()> {
+    fn manually_set() {
         let mut bag = BitBag::<FooFlags>::default();
         bag.set(FooFlags::A).set(FooFlags::B);
         assert_eq!(*bag, 0b0000_0011);
-        Ok(())
     }
 
     #[test]
-    fn manually_unset() -> Result<()> {
+    fn manually_unset() {
         let mut bag = BitBag::<FooFlags>::new_unchecked(0b0000_0011);
         bag.unset(FooFlags::A);
         assert_eq!(*bag, 0b0000_0010);
-        Ok(())
     }
 }

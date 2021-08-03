@@ -6,6 +6,6 @@
 
 </div>
 
-# {{crate}}
+# `{{crate}}`
 
 {{readme}}

@@ -6,7 +6,7 @@
 
 </div>
 
-# bitbag
+# `bitbag`
 
 This crate provides [`BitBag`], a type intended for tracking bitflags defined in a [field-less enum](https://doc.rust-lang.org/rust-by-example/custom_types/enum/c_like.html).
 Get started like this:
@@ -33,8 +33,17 @@ bag.set(Flags::C);
 assert_eq!(*bag, 0b0111);
 
 ```
+Deriving [`BitBaggable`] will also give you very ergonomic constructors
+```rust
+use Flags::*;
+let bag = A | B | C;
+assert!(bag.is_set(Flags::A));
+assert!(bag.is_set(Flags::B));
+assert!(bag.is_set(Flags::C));
+```
 Additionally deriving [`EnumIter`], and [`Copy`] will allow fallible creation, and iteration over the set flags
 ```rust
+//                                  ⬇ this bit is not defined in Flags
 let result = BitBag::<Flags>::new(0b1000);
 assert!(matches!(
     result,
