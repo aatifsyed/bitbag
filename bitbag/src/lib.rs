@@ -107,7 +107,7 @@ pub trait BitBaggable: Into<Self::Repr> {
 
 /// Wraps a primitive, with helper methods for checking flags.
 /// [`Deref`]s to the primitive if you wish to access it
-#[derive(Clone, Copy, Debug, Deref, Binary, AsRef)]
+#[derive(Clone, Copy, Debug, Deref, Binary, AsRef, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct BitBag<Flags: BitBaggable> {
     inner: Flags::Repr,
@@ -209,10 +209,6 @@ impl<Repr: PrimInt + Binary> Display for NonFlagBits<Repr> {
 
 impl<Repr: Debug + PrimInt + Binary> std::error::Error for NonFlagBits<Repr> {}
 
-pub trait BoolBag {
-    type BoolBag;
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashSet;
@@ -222,7 +218,7 @@ pub(crate) mod tests {
     use anyhow::Result;
     use strum::EnumIter;
 
-    #[derive(Debug, Copy, Clone, EnumIter, PartialEq, Eq, Hash, BitBaggable)]
+    #[derive(Debug, Copy, Clone, EnumIter, PartialEq, Eq, Hash, BitBaggable, BoolBag)]
     #[repr(u8)]
     pub enum FooFlags {
         A = 0b0000_0001,
@@ -283,5 +279,50 @@ pub(crate) mod tests {
         let mut bag = BitBag::<FooFlags>::new_unchecked(0b0000_0011);
         bag.unset(FooFlags::A);
         assert_eq!(*bag, 0b0000_0010);
+    }
+
+    #[test]
+    fn empty_bitbag_to_boolbag() {
+        let bitbag = BitBag::<FooFlags>::default();
+        let boolbag = FooFlagsBoolBag {
+            a: false,
+            b: false,
+            c: false,
+            d: false,
+        };
+        assert_eq!(FooFlagsBoolBag::from(bitbag), boolbag)
+    }
+
+    #[test]
+    fn single_bitbag_to_boolbag() {
+        let mut bitbag = BitBag::<FooFlags>::default();
+        bitbag.set(FooFlags::A);
+        let boolbag = FooFlagsBoolBag {
+            a: true,
+            b: false,
+            c: false,
+            d: false,
+        };
+        assert_eq!(FooFlagsBoolBag::from(bitbag), boolbag)
+    }
+
+    #[test]
+    fn empty_boolbag_to_bitbag() {
+        let boolbag = FooFlagsBoolBag::default();
+        let bitbag = boolbag.into();
+        assert_eq!(BitBag::<FooFlags>::default(), bitbag)
+    }
+
+    #[test]
+    fn single_boolbag_to_bitbag() {
+        let boolbag = FooFlagsBoolBag {
+            c: true,
+            ..Default::default()
+        };
+        let bitbag: BitBag<_> = boolbag.into();
+        assert!(!bitbag.is_set(FooFlags::A));
+        assert!(!bitbag.is_set(FooFlags::B));
+        assert!(bitbag.is_set(FooFlags::C));
+        assert!(!bitbag.is_set(FooFlags::D));
     }
 }

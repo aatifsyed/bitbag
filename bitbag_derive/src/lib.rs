@@ -6,7 +6,7 @@ use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
 #[cfg(doc)]
 use std::ops::BitOr;
-use syn::{parse_macro_input, spanned::Spanned, DeriveInput, Ident, Meta, NestedMeta};
+use syn::{parse_macro_input, DeriveInput, Ident, Meta, NestedMeta};
 
 /// Derives BitBaggable and [`BitOr`] for a field-less enum.
 #[proc_macro_error]
@@ -89,6 +89,13 @@ pub fn derive_bitbaggable(input: TokenStream) -> TokenStream {
     }
 }
 
+fn snake_case_ident(ident: &Ident) -> Ident {
+    Ident::new(
+        &ident.to_string().to_case(convert_case::Case::Snake),
+        ident.span(),
+    )
+}
+
 /// Derives a new BoolBag struct for a field-less enum
 #[proc_macro_error]
 #[proc_macro_derive(BoolBag)]
@@ -106,25 +113,29 @@ pub fn derive_boolbag(input: TokenStream) -> TokenStream {
 
         let boolbag_fields = user_enum.variants.iter().map(|variant| {
             trace!("{:#?}", variant);
-            Ident::new(
-                &variant.ident.to_string().to_case(convert_case::Case::Snake),
-                variant.span(),
-            )
+            snake_case_ident(&variant.ident)
         });
 
-        let boolbag_fields_and_setters = user_enum.variants.iter().map(|variant| {
+        let set_boolbag_fields_from_bitbag = user_enum.variants.iter().map(|variant| {
             let variant_name = &variant.ident;
-            let field_name = Ident::new(
-                &variant.ident.to_string().to_case(convert_case::Case::Snake),
-                variant.span(),
-            );
+            let field_name = snake_case_ident(&variant.ident);
             quote! {
                 #field_name: bitbag.is_set(#user_ident::#variant_name)
             }
         });
 
+        let set_bitbag_flags_from_boolbag = user_enum.variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            let field_name = snake_case_ident(&variant.ident);
+            quote! {
+                if boolbag.#field_name {
+                    bitbag.set(#user_ident::#variant_name);
+                }
+            }
+        });
+
         let appended = quote! {
-            #[derive(Debug, Default, Clone, Copy)]
+            #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
             #vis struct #boolbag_ident {
                 #(pub #boolbag_fields: bool),*
             }
@@ -132,14 +143,16 @@ pub fn derive_boolbag(input: TokenStream) -> TokenStream {
             impl From<bitbag::BitBag<#user_ident>> for #boolbag_ident {
                 fn from(bitbag: bitbag::BitBag<#user_ident>) -> #boolbag_ident {
                     #boolbag_ident {
-                        #(#boolbag_fields_and_setters),*
+                        #(#set_boolbag_fields_from_bitbag),*
                     }
                 }
             }
 
             impl From<#boolbag_ident> for bitbag::BitBag<#user_ident> {
                 fn from(boolbag: #boolbag_ident) -> bitbag::BitBag<#user_ident> {
-                    todo!()
+                    let mut bitbag = bitbag::BitBag::<#user_ident>::default();
+                    #(#set_bitbag_flags_from_boolbag);*
+                    bitbag
                 }
             }
         };
