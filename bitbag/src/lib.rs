@@ -79,6 +79,7 @@
 mod bitwise;
 mod iter;
 pub use bitbag_derive::BitBaggable;
+pub use bitbag_derive::BoolBag;
 use derive_more::{AsRef, Binary, Deref};
 use num::{PrimInt, Zero};
 use std::{
@@ -207,6 +208,10 @@ impl<Repr: PrimInt + Binary> Display for NonFlagBits<Repr> {
 }
 
 impl<Repr: Debug + PrimInt + Binary> std::error::Error for NonFlagBits<Repr> {}
+
+pub trait BoolBag {
+    type BoolBag;
+}
 
 #[cfg(test)]
 pub(crate) mod tests {

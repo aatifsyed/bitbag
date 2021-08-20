@@ -40,6 +40,7 @@ version = "0.1.4"
 dependencies = [
  "anyhow",
  "bitbag_derive",
+ "bitflags",
  "derive_more",
  "num",
  "strum",
@@ -49,12 +50,20 @@ dependencies = [
 name = "bitbag_derive"
 version = "0.2.0"
 dependencies = [
+ "convert_case",
  "log",
+ "paste",
  "pretty_env_logger",
  "proc-macro-error",
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "bitflags"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
 name = "cfg-if"
@@ -217,6 +226,12 @@ checksum = "9a64b1ec5cda2586e284722486d802acf1f7dbdc623e2bfc57e65ca1cd099290"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acbf547ad0c65e31259204bd90935776d1c693cec2f4ff7abb7a1bbbd40dfe58"
 
 [[package]]
 name = "pest"

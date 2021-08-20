@@ -19,3 +19,4 @@ bitbag_derive = { path = "../bitbag_derive", version = "0.2.0" }
 
 [dev-dependencies]
 anyhow = "1.0.42"
+bitflags = "1.2.1"
