@@ -105,7 +105,7 @@ pub trait BitBaggable: Into<Self::Repr> {
 
 /// Wraps a primitive, with helper methods for checking flags.
 /// [`AsRef`]s to the primitive if you wish to access it
-#[derive(Clone, Copy, Debug, Binary, AsRef, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Binary, AsRef, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct BitBag<Flags: BitBaggable> {
     inner: Flags::Repr,
