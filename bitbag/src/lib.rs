@@ -29,7 +29,7 @@
 //! assert!(!bag.is_set(Flags::C));
 //!
 //! bag.set(Flags::C);
-//! assert_eq!(*bag, 0b0111);
+//! assert_eq!(*bag.as_ref(), 0b0111);
 //!
 //! ```
 //! Deriving [`BitBaggable`] will also give you very ergonomic constructors
@@ -80,7 +80,7 @@ mod bitwise;
 mod iter;
 pub use bitbag_derive::BitBaggable;
 pub use bitbag_derive::BoolBag;
-use derive_more::{AsRef, Binary, Deref};
+use derive_more::{AsRef, Binary};
 use num::{PrimInt, Zero};
 use std::{
     any::type_name,
@@ -89,8 +89,6 @@ use std::{
 };
 use strum::IntoEnumIterator;
 
-#[cfg(doc)]
-use std::ops::Deref;
 #[cfg(doc)]
 use strum::EnumIter;
 
@@ -106,11 +104,18 @@ pub trait BitBaggable: Into<Self::Repr> {
 }
 
 /// Wraps a primitive, with helper methods for checking flags.
-/// [`Deref`]s to the primitive if you wish to access it
-#[derive(Clone, Copy, Debug, Deref, Binary, AsRef, PartialEq, Eq)]
+/// [`AsRef`]s to the primitive if you wish to access it
+#[derive(Clone, Copy, Debug, Binary, AsRef, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct BitBag<Flags: BitBaggable> {
     inner: Flags::Repr,
+}
+
+impl<Flags: BitBaggable> BitBag<Flags> {
+    /// Get the inner primitive
+    pub fn inner(&self) -> &Flags::Repr {
+        &self.inner
+    }
 }
 
 impl<Flags: BitBaggable> Default for BitBag<Flags> {
@@ -271,14 +276,14 @@ pub(crate) mod tests {
     fn manually_set() {
         let mut bag = BitBag::<FooFlags>::default();
         bag.set(FooFlags::A).set(FooFlags::B);
-        assert_eq!(*bag, 0b0000_0011);
+        assert_eq!(*bag.inner(), 0b0000_0011);
     }
 
     #[test]
     fn manually_unset() {
         let mut bag = BitBag::<FooFlags>::new_unchecked(0b0000_0011);
         bag.unset(FooFlags::A);
-        assert_eq!(*bag, 0b0000_0010);
+        assert_eq!(*bag.inner(), 0b0000_0010);
     }
 
     #[test]

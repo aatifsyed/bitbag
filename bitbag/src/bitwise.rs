@@ -10,7 +10,7 @@ where
     type Output = BitBag<Flag>;
 
     fn not(self) -> Self::Output {
-        let repr = *self;
+        let repr = self.inner;
         let repr = !repr;
         Self::new_unchecked(repr)
     }
@@ -104,7 +104,7 @@ mod rhs_is_bitbag {
         type Output = BitBag<Flag>;
 
         fn bitand(self, rhs: BitBag<Flag>) -> Self::Output {
-            Self::new_unchecked(*self & *rhs)
+            Self::new_unchecked(self.inner & rhs.inner)
         }
     }
 
@@ -125,7 +125,7 @@ mod rhs_is_bitbag {
         type Output = BitBag<Flag>;
 
         fn bitor(self, rhs: BitBag<Flag>) -> Self::Output {
-            Self::new_unchecked(*self | *rhs)
+            Self::new_unchecked(self.inner | rhs.inner)
         }
     }
 
