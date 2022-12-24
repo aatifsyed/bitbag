@@ -148,6 +148,9 @@ where
         self.inner.bitand_assign(!flag);
         self
     }
+}
+
+impl<Flag: BitBaggable> BitBag<Flag> {
     /// Unset all flags
     pub fn clear_all(&mut self) -> &mut Self {
         self.inner.set_zero();
