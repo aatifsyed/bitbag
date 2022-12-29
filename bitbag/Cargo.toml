@@ -16,7 +16,10 @@ derive_more = "0.99.16"
 num = "0.4.0"
 strum = { version = "0.21.0", features = ["derive"] }
 bitbag_derive = { path = "../bitbag_derive", version = "0.2.0" }
+itertools = "0.10.5"
+bit-iter = "1.1.1"
 
 [dev-dependencies]
 anyhow = "1.0.42"
 bitflags = "1.2.1"
+indoc = "1.0.8"

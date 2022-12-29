@@ -1,6 +1,5 @@
 use convert_case::Casing;
 use log::{debug, trace};
-use pretty_env_logger;
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
@@ -12,7 +11,7 @@ use syn::{parse_macro_input, DeriveInput, Ident, Meta, NestedMeta};
 #[proc_macro_error]
 #[proc_macro_derive(BitBaggable)]
 pub fn derive_bitbaggable(input: TokenStream) -> TokenStream {
-    pretty_env_logger::try_init().ok();
+    pretty_env_logger::try_init_custom_env("RUST_LOG_BITBAG").ok();
     let user_struct = parse_macro_input!(input as DeriveInput);
     debug!("{:#?}", user_struct);
 

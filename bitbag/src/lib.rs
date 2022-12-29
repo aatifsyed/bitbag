@@ -64,7 +64,7 @@
 //! let result = BitBag::<Flags>::new(0b1000);
 //! assert!(matches!(
 //!     result,
-//!     Err(e) if e.given() == 0b1000
+//!     Err(e) if e.given == 0b1000
 //! ));
 //!
 //! let bag = BitBag::<Flags>::new_unchecked(0b0110);
@@ -81,7 +81,10 @@ mod iter;
 pub use bitbag_derive::BitBaggable;
 pub use bitbag_derive::BoolBag;
 use derive_more::{AsRef, Binary};
+use itertools::Itertools;
 use num::{PrimInt, Zero};
+use std::collections::HashSet;
+use std::fmt;
 use std::{
     any::type_name,
     fmt::{Binary, Debug, Display},
@@ -113,8 +116,18 @@ pub struct BitBag<Flags: BitBaggable> {
 
 impl<Flags: BitBaggable> BitBag<Flags> {
     /// Get the inner primitive
-    pub fn inner(&self) -> &Flags::Repr {
-        &self.inner
+    pub fn into_inner(&self) -> Flags::Repr {
+        self.inner
+    }
+
+    /// Unset all flags
+    pub fn clear_all(&mut self) -> &mut Self {
+        self.inner.set_zero();
+        self
+    }
+    /// Don't check the primitive for non-flag bits
+    pub fn new_unchecked(prim: Flags::Repr) -> Self {
+        Self { inner: prim }
     }
 }
 
@@ -127,51 +140,39 @@ impl<Flags: BitBaggable> Default for BitBag<Flags> {
     }
 }
 
-impl<Flag: BitBaggable> BitBag<Flag>
+impl<Flags: BitBaggable> BitBag<Flags>
 where
-    Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
+    Flags::Repr: BitAndAssign<Flags::Repr> + BitOrAssign<Flags::Repr>,
 {
     /// Return `true` if the flag is set
-    pub fn is_set(&self, flag: Flag) -> bool {
+    pub fn is_set(&self, flag: Flags) -> bool {
         let flag = flag.into();
         self.inner.bitand(flag) == flag
     }
     /// Set the flag
-    pub fn set(&mut self, flag: Flag) -> &mut Self {
+    pub fn set(&mut self, flag: Flags) -> &mut Self {
         let flag = flag.into();
         self.inner.bitor_assign(flag);
         self
     }
     /// Unset the flag
-    pub fn unset(&mut self, flag: Flag) -> &mut Self {
+    pub fn unset(&mut self, flag: Flags) -> &mut Self {
         let flag = flag.into();
         self.inner.bitand_assign(!flag);
         self
     }
 }
 
-impl<Flag: BitBaggable> BitBag<Flag> {
-    /// Unset all flags
-    pub fn clear_all(&mut self) -> &mut Self {
-        self.inner.set_zero();
-        self
-    }
-    /// Don't check the primitive for non-flag bits
-    pub fn new_unchecked(prim: Flag::Repr) -> Self {
-        Self { inner: prim }
-    }
-}
-
-impl<Flag: BitBaggable> BitBag<Flag>
+impl<Flags: BitBaggable> BitBag<Flags>
 where
-    Flag: IntoEnumIterator,
-    Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
+    Flags: IntoEnumIterator,
+    Flags::Repr: BitAndAssign<Flags::Repr> + BitOrAssign<Flags::Repr>,
 {
     /// Check the bits of `prim`, and return an [`NonFlagBits`] error if it has bits set which can't be represented by a flag.
-    pub fn new(prim: Flag::Repr) -> Result<Self, NonFlagBits<Flag::Repr>> {
-        let mask = Flag::iter()
+    pub fn new(prim: Flags::Repr) -> Result<Self, NonFlagBits<Flags::Repr>> {
+        let mask = Flags::iter()
             .map(Into::into)
-            .fold(Flag::Repr::zero(), |accumulator, element| {
+            .fold(Flags::Repr::zero(), |accumulator, element| {
                 accumulator.bitor(element)
             });
         match mask.bitor(prim) == mask {
@@ -182,25 +183,79 @@ where
 
     /// Set all flags defined in the enum
     pub fn set_all(&mut self) -> &mut Self {
-        for flag in Flag::iter() {
+        for flag in Flags::iter() {
             self.set(flag);
         }
         self
     }
 }
 
-/// The error returned when creating a [`BitBag`] from a primitive which contains bits set which aren't represented by flags
-#[derive(Debug)]
-pub struct NonFlagBits<Repr> {
-    given: Repr,
-    mask: Repr,
+impl<Flags: BitBaggable> BitBag<Flags>
+where
+    Flags: IntoEnumIterator + Clone,
+    Flags::Repr: BitAnd<Flags::Repr> + BitOr<Flags::Repr> + Into<bit_iter::BitIter<Flags::Repr>>,
+    bit_iter::BitIter<Flags::Repr>: Iterator<Item = usize>,
+{
+    pub fn check_nonoverlapping() -> Result<(), Overlapping<Flags>> {
+        for mut v in Flags::iter().permutations(2) {
+            let (a, b) = (v.remove(1), v.remove(0));
+            let (a_repr, b_repr) = (a.clone().into(), b.clone().into());
+            let (a_set_bits, b_set_bits) = (
+                a_repr.into().collect::<HashSet<_>>(),
+                b_repr.into().collect::<HashSet<_>>(),
+            );
+            if let Some(position) = a_set_bits
+                .intersection(&b_set_bits)
+                .next()
+                .map(Clone::clone)
+            {
+                return Err(Overlapping { a, b, position });
+            }
+        }
+        Ok(())
+    }
 }
 
-impl<Repr: Copy> NonFlagBits<Repr> {
-    /// The primitive which contained non-flag bits
-    pub fn given(&self) -> Repr {
-        self.given
+impl<Flags: BitBaggable> fmt::Display for BitBag<Flags>
+where
+    Flags: IntoEnumIterator + fmt::Display + Clone,
+    Flags::Repr: BitAndAssign<Flags::Repr> + BitOrAssign<Flags::Repr>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.inner.is_zero() {
+            return f.write_str("<unset>");
+        }
+
+        let mut first = true;
+        for flag in Flags::iter() {
+            if self.is_set(flag.clone()) {
+                match first {
+                    true => {
+                        f.write_fmt(format_args!("{}", flag))?;
+                        first = false
+                    }
+                    false => f.write_fmt(format_args!(" | {}", flag))?,
+                }
+            }
+        }
+
+        if Self::new(self.inner.clone()).is_err() {
+            match first {
+                true => f.write_str("<unrecognised bits>")?,
+                false => f.write_str(" | <unrecognised bits>")?,
+            }
+        }
+
+        Ok(())
     }
+}
+
+/// The error returned when calling a [`BitBag`] from a primitive which contains bits set which aren't represented by flags
+#[derive(Debug)]
+pub struct NonFlagBits<Repr> {
+    /// The primitive which contained non-flag bits
+    pub given: Repr,
+    mask: Repr,
 }
 
 impl<Repr: PrimInt + Binary> Display for NonFlagBits<Repr> {
@@ -217,16 +272,78 @@ impl<Repr: PrimInt + Binary> Display for NonFlagBits<Repr> {
 
 impl<Repr: Debug + PrimInt + Binary> std::error::Error for NonFlagBits<Repr> {}
 
+/// The error returned when calling [`BitBag::check_nonoverlapping`]
+#[derive(Debug)]
+pub struct Overlapping<Flags> {
+    pub a: Flags,
+    pub b: Flags,
+    pub position: usize,
+}
+
+impl<Flags> Display for Overlapping<Flags>
+where
+    Flags: Debug + BitBaggable + Clone,
+    Flags::Repr: Binary + PrimInt,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { a, b, position } = self;
+        f.write_fmt(format_args!(
+            "{a:?} and {b:?} overlap at bit position {position}"
+        ))?;
+        let width = Flags::Repr::zero().count_zeros();
+        macro_rules! print_wide_enough {
+            ($width:ident, $($bits:expr),*) => {
+                match $width {
+                    $(
+                        ..=$bits => {
+                            f.write_fmt(format_args!(
+                                concat!(":\n0b{:0", stringify!($bits), "b} ({:?})\n"),
+                                a.clone().into(),
+                                a
+                            ))?;
+                            f.write_fmt(format_args!(
+                                concat!("0b{:0", stringify!($bits), "b} ({:?})\n"),
+                                b.clone().into(),
+                                b
+                            ))?;
+                            let pointer = std::iter::repeat(' ')
+                                .take(width as usize - position + 1)
+                                .chain(['^'])
+                                .collect::<String>();
+                            f.write_str(&pointer)?;
+                        }
+                    )*
+                    _ => (),
+                }
+            };
+        }
+
+        print_wide_enough!(width, 8, 16, 32, 64, 128);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashSet;
 
+    use indoc::indoc;
+
     use super::*;
     use crate as bitbag;
-    use anyhow::Result;
-    use strum::EnumIter;
 
-    #[derive(Debug, Copy, Clone, EnumIter, PartialEq, Eq, Hash, BitBaggable, BoolBag)]
+    #[derive(
+        Debug,
+        Copy,
+        Clone,
+        strum::EnumIter,
+        PartialEq,
+        Eq,
+        Hash,
+        BitBaggable,
+        BoolBag,
+        strum::Display,
+    )]
     #[repr(u8)]
     pub enum FooFlags {
         A = 0b0000_0001,
@@ -236,7 +353,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn new_single_flag() -> Result<()> {
+    fn new_single_flag() -> anyhow::Result<()> {
         let bag = BitBag::<FooFlags>::new(0b0000_0001)?;
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
@@ -245,7 +362,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn new_multiple_flags() -> Result<()> {
+    fn new_multiple_flags() -> anyhow::Result<()> {
         let bag = BitBag::<FooFlags>::new(0b0000_1101)?;
         let flags = bag.into_iter().collect::<HashSet<_>>();
         assert!(flags.len() == 3);
@@ -279,14 +396,14 @@ pub(crate) mod tests {
     fn manually_set() {
         let mut bag = BitBag::<FooFlags>::default();
         bag.set(FooFlags::A).set(FooFlags::B);
-        assert_eq!(*bag.inner(), 0b0000_0011);
+        assert_eq!(bag.into_inner(), 0b0000_0011);
     }
 
     #[test]
     fn manually_unset() {
         let mut bag = BitBag::<FooFlags>::new_unchecked(0b0000_0011);
         bag.unset(FooFlags::A);
-        assert_eq!(*bag.inner(), 0b0000_0010);
+        assert_eq!(bag.into_inner(), 0b0000_0010);
     }
 
     #[test]
@@ -332,5 +449,37 @@ pub(crate) mod tests {
         assert!(!bitbag.is_set(FooFlags::B));
         assert!(bitbag.is_set(FooFlags::C));
         assert!(!bitbag.is_set(FooFlags::D));
+    }
+
+    #[test]
+    fn display() {
+        let bitbag = FooFlags::A | FooFlags::B;
+        assert_eq!("A | B", bitbag.to_string());
+        let bitbag = BitBag::<FooFlags>::default();
+        assert_eq!("<unset>", bitbag.to_string());
+    }
+
+    #[derive(Debug, Copy, Clone, strum::EnumIter, PartialEq, Eq, BitBaggable)]
+    #[repr(u16)]
+    pub enum BadFlags {
+        A = 0b0000_0001,
+        B = 0b0000_0010,
+        C = 0b0000_0100,
+        D = 0b0000_1100,
+    }
+
+    #[test]
+    fn non_overlapping() {
+        BitBag::<FooFlags>::check_nonoverlapping().unwrap();
+        let e = BitBag::<BadFlags>::check_nonoverlapping().unwrap_err();
+        assert_eq!(
+            indoc!(
+                "D and C overlap at bit position 2:
+            0b0000000000001100 (D)
+            0b0000000000000100 (C)
+                           ^"
+            ),
+            e.to_string()
+        );
     }
 }

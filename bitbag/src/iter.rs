@@ -56,7 +56,7 @@ where
     type Item = Flag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(flag) = self.flags_iterator.next() {
+        for flag in self.flags_iterator.by_ref() {
             if self.bag.is_set(flag) {
                 return Some(flag);
             }
