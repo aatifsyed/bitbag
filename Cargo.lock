@@ -42,7 +42,7 @@ checksum = "23067a77080631c5d676e61865867f5e595a3f9a50bf6973e24fb7ce5c20ee91"
 
 [[package]]
 name = "bitbag"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bit-iter",
