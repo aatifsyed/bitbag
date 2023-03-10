@@ -239,7 +239,7 @@ where
             }
         }
 
-        if Self::new(self.inner.clone()).is_err() {
+        if Self::new(self.inner).is_err() {
             match first {
                 true => f.write_str("<unrecognised bits>")?,
                 false => f.write_str(" | <unrecognised bits>")?,
