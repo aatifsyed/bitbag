@@ -15,7 +15,7 @@ readme = "../README.md"
 derive_more = "0.99.16"
 num = "0.4.0"
 strum = { version = "0.21.0", features = ["derive"] }
-bitbag_derive = { path = "../bitbag_derive", version = "0.2.1" }
+bitbag-derive = { path = "../bitbag-derive", version = "0.2.1" }
 itertools = "0.10.5"
 bit-iter = "1.1.1"
 

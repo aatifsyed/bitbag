@@ -1,1 +1,1 @@
-workspace.members = ["bitbag", "bitbag_derive"]
+workspace.members = ["bitbag", "bitbag-derive"]

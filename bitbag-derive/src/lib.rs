@@ -162,3 +162,14 @@ pub fn derive_boolbag(input: TokenStream) -> TokenStream {
         abort!(user_struct, "Must be an enum")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn trybuild() {
+        let t = trybuild::TestCases::new();
+        t.pass("trybuild/pass/**/*.rs");
+        t.compile_fail("trybuild/fail/**/*.rs")
+    }
+}

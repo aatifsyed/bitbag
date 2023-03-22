@@ -1,5 +1,5 @@
 [package]
-name = "bitbag_derive"
+name = "bitbag-derive"
 version = "0.2.1"
 edition = "2018"
 description = "Derive macros for the bitbag crate"
@@ -18,3 +18,6 @@ pretty_env_logger = "0.4.0"
 proc-macro-error = "1.0.4"
 quote = "1.0.9"
 syn = { version = "1.0.74", features = ["extra-traits"] }
+
+[dev-dependencies]
+trybuild = "1.0.80"
