@@ -1,0 +1,7 @@
+error[E0080]: evaluation of constant value failed
+ --> trybuild/fail/contains_overlapping_variants.rs:1:1
+  |
+1 | #[bitbag_derive::check]
+  | ^^^^^^^^^^^^^^^^^^^^^^^ the evaluated program panicked at 'BadFlags::B and BadFlags::C have overlapping bits', $DIR/trybuild/fail/contains_overlapping_variants.rs:1:1
+  |
+  = note: this error originates in the macro `$crate::panic::panic_2015` which comes from the expansion of the macro `panic` (in Nightly builds, run with -Z macro-backtrace for more info)

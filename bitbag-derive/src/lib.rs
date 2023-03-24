@@ -1,10 +1,37 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::{
-    meta::ParseNestedMeta,
-    parse::{Nothing, Parse, ParseStream, Parser},
+    parse::{Nothing, Parse, ParseStream},
     parse_macro_input, DataEnum, DeriveInput, Fields, Ident, LitStr,
 };
+
+#[proc_macro_derive(BitBaggable)]
+pub fn derive_bitbaggable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let user_struct = parse_macro_input!(input as DeriveInput);
+    expand_bitbaggable(&user_struct)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro_derive(BitOr)]
+pub fn derive_bitor(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let user_struct = parse_macro_input!(input as DeriveInput);
+    expand_bitor(&user_struct)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro_attribute]
+pub fn check(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(item as DeriveInput);
+    parse_macro_input!(attr as Nothing);
+    expand_check(&input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 #[derive(Debug, Clone)]
 struct ReprIntIdent {
@@ -150,71 +177,6 @@ fn expand_bitor(input: &DeriveInput) -> syn::Result<TokenStream> {
     })
 }
 
-#[proc_macro_derive(BitBaggable)]
-pub fn derive_bitbaggable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let user_struct = parse_macro_input!(input as DeriveInput);
-    expand_bitbaggable(&user_struct)
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into()
-}
-
-#[proc_macro_derive(BitOr)]
-pub fn derive_bitor(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let user_struct = parse_macro_input!(input as DeriveInput);
-    expand_bitor(&user_struct)
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into()
-}
-
-#[derive(Debug)]
-struct CheckConfig {
-    unit_test: bool,
-    compile_test: bool,
-}
-
-impl Parse for CheckConfig {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut config = CheckConfig {
-            unit_test: false,
-            compile_test: false,
-        };
-
-        syn::meta::parser(|stage| config.parse_stage(stage)).parse2(input.parse()?)?;
-        if !config.unit_test && !config.compile_test {
-            config.unit_test = true; // default behaviour if left unspecified
-        }
-        Ok(config)
-    }
-}
-
-impl CheckConfig {
-    fn parse_stage(&mut self, stage: ParseNestedMeta) -> syn::Result<()> {
-        if stage.path.is_ident("unit_test") || stage.path.is_ident("unit") {
-            if !stage.input.is_empty() {
-                return Err(stage.error("`unit_test` doesn't take any arguments"));
-            }
-            if self.unit_test {
-                return Err(stage.error("`unit_test` can only be specified once"));
-            }
-            self.unit_test = true
-        } else if stage.path.is_ident("compile_test") || stage.path.is_ident("compile") {
-            if !stage.input.is_empty() {
-                return Err(stage.error("`compile_test` doesn't take any arguments"));
-            }
-            if self.compile_test {
-                return Err(stage.error("`compile_test` can only be specified once"));
-            }
-            self.compile_test = true
-        } else {
-            return Err(stage.error(format!(
-                "unexpected argument `{}`, expected `unit_test` or `compile_test``",
-                stage.path.to_token_stream()
-            )));
-        }
-        Ok(())
-    }
-}
-
 fn expand_check(input: &DeriveInput) -> syn::Result<TokenStream> {
     let (data, repr) = extract_enum_and_repr(input)?;
     let struct_ident = &input.ident;
@@ -265,18 +227,6 @@ fn expand_check(input: &DeriveInput) -> syn::Result<TokenStream> {
             #(#nonzero_checkers)*
         };
     ))
-}
-
-#[proc_macro_attribute]
-pub fn check(
-    attr: proc_macro::TokenStream,
-    item: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(item as DeriveInput);
-    parse_macro_input!(attr as Nothing);
-    expand_check(&input)
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into()
 }
 
 #[cfg(test)]
