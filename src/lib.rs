@@ -82,24 +82,21 @@ use std::{
 
 /// The trait that allows an enum to be placed inside a [`BitBag`].
 ///
-/// The basic requirements are
-/// - We must tell the type system the `primitive` in `#[repr(primitive)]`
-/// - We must be able to convert (from any variant) into that primitive
-/// - We must know all the variant names and values
-///
-/// You should derive this with the `BitBaggable` derive macro
+/// You should derive this with the `BitBaggable` derive macro.
 pub trait BitBaggable: Sized + 'static {
-    type Repr: PrimInt;
-    fn into_repr(self) -> Self::Repr;
+    /// The `primitive` in `#[repr(primitive)]`
+    type ReprT: PrimInt;
+    /// Convert from a variant to its primitive
+    fn into_repr(self) -> Self::ReprT;
     /// names, values and discriminants
-    const VARIANTS: &'static [(&'static str, Self, Self::Repr)];
+    const VARIANTS: &'static [(&'static str, Self, Self::ReprT)];
 }
 
 /// Wraps a primitive, with helper methods for checking and setting flags.
 #[derive(Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct BitBag<PossibleFlagsT: BitBaggable> {
-    pub repr: PossibleFlagsT::Repr,
+    pub repr: PossibleFlagsT::ReprT,
 }
 
 impl<PossibleFlagsT: BitBaggable> Clone for BitBag<PossibleFlagsT> {
@@ -111,74 +108,62 @@ impl<PossibleFlagsT: BitBaggable> Clone for BitBag<PossibleFlagsT> {
 impl<PossibleFlagsT: BitBaggable> Copy for BitBag<PossibleFlagsT> {}
 
 impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
-    /// Get the inner primitive
-    pub fn get(&self) -> PossibleFlagsT::Repr {
+    /// Get a copy of the inner primitive
+    pub fn get(&self) -> PossibleFlagsT::ReprT {
         self.repr
     }
 
     /// Create a new wrapper, permitting (and preserving) unrecognised bits
-    pub fn new(prim: PossibleFlagsT::Repr) -> Self {
+    pub fn new(prim: PossibleFlagsT::ReprT) -> Self {
         Self { repr: prim }
     }
 
     /// Create a wrapper with no bits set
     pub fn empty() -> Self {
         Self {
-            repr: PossibleFlagsT::Repr::zero(),
+            repr: PossibleFlagsT::ReprT::zero(),
         }
     }
-}
 
-impl<PossibleFlagsT: BitBaggable> Default for BitBag<PossibleFlagsT> {
-    fn default() -> Self {
-        Self {
-            repr: PossibleFlagsT::Repr::zero(),
-        }
-    }
-}
-
-impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
-    pub fn is_set_raw(&self, raw: PossibleFlagsT::Repr) -> bool {
+    pub fn is_set_raw(&self, raw: PossibleFlagsT::ReprT) -> bool {
         self.repr.bitand(raw) == raw
     }
     pub fn is_set(&self, flag: PossibleFlagsT) -> bool {
         self.is_set_raw(flag.into_repr())
     }
-}
 
-impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
-    pub fn set_raw(&mut self, raw: PossibleFlagsT::Repr) -> &mut Self {
+    pub fn set_raw(&mut self, raw: PossibleFlagsT::ReprT) -> &mut Self {
         self.repr = self.repr.bitor(raw);
         self
     }
+
     pub fn set(&mut self, flag: PossibleFlagsT) -> &mut Self {
         self.set_raw(flag.into_repr())
     }
+
     pub fn set_all(&mut self) -> &mut Self {
         for (_, _, repr) in PossibleFlagsT::VARIANTS {
             self.set_raw(*repr);
         }
         self
     }
+
     pub fn clear_all(&mut self) -> &mut Self {
         self.repr.set_zero();
         self
     }
-}
 
-impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
-    pub fn unset_raw(&mut self, raw: PossibleFlagsT::Repr) -> &mut Self {
+    pub fn unset_raw(&mut self, raw: PossibleFlagsT::ReprT) -> &mut Self {
         self.repr = self.repr.bitand(raw.not());
         self
     }
+
     pub fn unset(&mut self, flag: PossibleFlagsT) -> &mut Self {
         self.unset_raw(flag.into_repr())
     }
-}
 
-impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     /// Check the bits of `prim`, and return an [`NonFlagBits`] error if it has bits set which aren't defined in the enum.
-    pub fn new_strict(prim: PossibleFlagsT::Repr) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
+    pub fn new_strict(prim: PossibleFlagsT::ReprT) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
         match mask::<PossibleFlagsT>().bitor(prim) == mask::<PossibleFlagsT>() {
             true => Ok(Self { repr: prim }),
             false => Err(NonFlagBits { given: prim }),
@@ -186,12 +171,19 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     }
 }
 
-fn mask<PossibleFlagsT: BitBaggable>() -> PossibleFlagsT::Repr {
-    PossibleFlagsT::VARIANTS
-        .iter()
-        .fold(PossibleFlagsT::Repr::zero(), |accumulator, (_, _, repr)| {
-            accumulator.bitor(*repr)
-        })
+impl<PossibleFlagsT: BitBaggable> Default for BitBag<PossibleFlagsT> {
+    fn default() -> Self {
+        Self {
+            repr: PossibleFlagsT::ReprT::zero(),
+        }
+    }
+}
+
+fn mask<PossibleFlagsT: BitBaggable>() -> PossibleFlagsT::ReprT {
+    PossibleFlagsT::VARIANTS.iter().fold(
+        PossibleFlagsT::ReprT::zero(),
+        |accumulator, (_, _, repr)| accumulator.bitor(*repr),
+    )
 }
 
 #[derive(Debug)]
@@ -260,12 +252,12 @@ where
 }
 
 pub fn check_nonoverlapping<PossibleFlagsT: BitBaggable>(
-) -> Result<(), OverlappingVariants<PossibleFlagsT::Repr>> {
+) -> Result<(), OverlappingVariants<PossibleFlagsT::ReprT>> {
     for permutation in PossibleFlagsT::VARIANTS.iter().permutations(2) {
         let (left_name, _, left_repr) = permutation[0];
         let (right_name, _, right_repr) = permutation[1];
         let anded = left_repr.bitand(*right_repr);
-        if anded != PossibleFlagsT::Repr::zero() {
+        if anded != PossibleFlagsT::ReprT::zero() {
             return Err(OverlappingVariants {
                 pair: OverlappingPair {
                     left: (*left_name, *left_repr),
@@ -315,19 +307,19 @@ impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
 #[non_exhaustive]
 pub struct NonFlagBits<PossibleFlagsT: BitBaggable> {
     /// The primitive which contained non-flag bits
-    pub given: PossibleFlagsT::Repr,
+    pub given: PossibleFlagsT::ReprT,
 }
 
 impl<PossibleFlagsT: BitBaggable> std::error::Error for NonFlagBits<PossibleFlagsT>
 where
-    PossibleFlagsT::Repr: Binary + Debug,
+    PossibleFlagsT::ReprT: Binary + Debug,
     PossibleFlagsT: Debug,
 {
 }
 
 impl<PossibleFlagsT: BitBaggable> Display for NonFlagBits<PossibleFlagsT>
 where
-    PossibleFlagsT::Repr: Binary,
+    PossibleFlagsT::ReprT: Binary,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let excess = self

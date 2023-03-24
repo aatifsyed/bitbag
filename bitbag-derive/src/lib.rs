@@ -16,11 +16,12 @@ impl ToTokens for ReprIntIdent {
     }
 }
 
-macro_rules! impl_parse {
-    ($first_candidate:ident, $($candidate:ident),* $(,)?) => {
-        impl Parse for ReprIntIdent {
-            fn parse(tokens: ParseStream) -> syn::Result<Self> {
-                let ident = tokens.parse::<Ident>()?;
+impl Parse for ReprIntIdent {
+    fn parse(tokens: ParseStream) -> syn::Result<Self> {
+        let ident = tokens.parse::<Ident>()?;
+
+        macro_rules! impl_parse {
+            ($first_candidate:ident, $($candidate:ident),* $(,)?) => {
                 if ident == stringify!($first_candidate) {
                     return Ok(Self{ident})
                 }
@@ -29,7 +30,7 @@ macro_rules! impl_parse {
                         return Ok(Self{ident})
                     }
                 )*
-                Err(syn::Error::new_spanned(ident, concat!(
+                return Err(syn::Error::new_spanned(ident, concat!(
                     "bitbag: ident must be one of [",
                     stringify!($first_candidate),
                     $(
@@ -38,13 +39,13 @@ macro_rules! impl_parse {
                     )*
                     "]"
                 )))
-            }
+
+            };
         }
 
-    };
+        impl_parse!(i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, isize, usize);
+    }
 }
-
-impl_parse!(i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, isize, usize);
 
 fn get_repr_ident(input: &DeriveInput) -> syn::Result<ReprIntIdent> {
     let mut repr_idents = Vec::new();
@@ -107,11 +108,11 @@ fn expand_bitbaggable(input: &DeriveInput) -> syn::Result<TokenStream> {
     Ok(quote! {
         #[automatically_derived]
         impl bitbag::BitBaggable for #user_ident {
-            type Repr = #repr;
-            fn into_repr(self) -> Self::Repr {
+            type ReprT = #repr;
+            fn into_repr(self) -> Self::ReprT {
                 self as #repr
             }
-            const VARIANTS: &'static [(&'static str, Self, Self::Repr)] = &[
+            const VARIANTS: &'static [(&'static str, Self, Self::ReprT)] = &[
                     #(#names_and_values,)*
                 ];
 
