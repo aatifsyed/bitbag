@@ -3,66 +3,49 @@ use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 use crate::{BitBag, BitBaggable};
 
 // Unary
-impl<Flag: BitBaggable> Not for BitBag<Flag>
-where
-    Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-{
-    type Output = BitBag<Flag>;
+impl<PossibleFlagsT: BitBaggable> Not for BitBag<PossibleFlagsT> {
+    type Output = BitBag<PossibleFlagsT>;
 
     fn not(self) -> Self::Output {
-        let repr = self.inner;
-        let repr = !repr;
-        Self::new_unchecked(repr)
+        Self { repr: !self.repr }
     }
 }
 
 mod rhs_is_flag {
     use super::*;
 
-    impl<Flag: BitBaggable> BitAnd<Flag> for BitBag<Flag>
-    where
-        Flag: Copy,
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-    {
-        type Output = BitBag<Flag>;
+    impl<PossibleFlagsT: BitBaggable> BitAnd<PossibleFlagsT> for BitBag<PossibleFlagsT> {
+        type Output = BitBag<PossibleFlagsT>;
 
-        fn bitand(mut self, rhs: Flag) -> Self::Output {
-            if self.is_set(rhs) {
-                self.set(rhs);
+        fn bitand(mut self, rhs: PossibleFlagsT) -> Self::Output {
+            let rhs = rhs.into_repr();
+            if self.is_set_raw(rhs) {
+                self.set_raw(rhs);
             }
             self
         }
     }
 
-    impl<Flag: BitBaggable> BitAndAssign<Flag> for BitBag<Flag>
-    where
-        Flag: Copy,
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-    {
-        fn bitand_assign(&mut self, rhs: Flag) {
-            if self.is_set(rhs) {
-                self.set(rhs);
+    impl<PossibleFlagsT: BitBaggable> BitAndAssign<PossibleFlagsT> for BitBag<PossibleFlagsT> {
+        fn bitand_assign(&mut self, rhs: PossibleFlagsT) {
+            let rhs = rhs.into_repr();
+            if self.is_set_raw(rhs) {
+                self.set_raw(rhs);
             }
         }
     }
 
-    impl<Flag: BitBaggable> BitOr<Flag> for BitBag<Flag>
-    where
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-    {
-        type Output = BitBag<Flag>;
+    impl<PossibleFlagsT: BitBaggable> BitOr<PossibleFlagsT> for BitBag<PossibleFlagsT> {
+        type Output = BitBag<PossibleFlagsT>;
 
-        fn bitor(mut self, rhs: Flag) -> Self::Output {
+        fn bitor(mut self, rhs: PossibleFlagsT) -> Self::Output {
             self.set(rhs);
             self
         }
     }
 
-    impl<Flag: BitBaggable> BitOrAssign<Flag> for BitBag<Flag>
-    where
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-    {
-        fn bitor_assign(&mut self, rhs: Flag) {
+    impl<PossibleFlagsT: BitBaggable> BitOrAssign<PossibleFlagsT> for BitBag<PossibleFlagsT> {
+        fn bitor_assign(&mut self, rhs: PossibleFlagsT) {
             self.set(rhs);
         }
     }
@@ -97,44 +80,30 @@ mod rhs_is_flag {
 mod rhs_is_bitbag {
     use super::*;
 
-    impl<Flag: BitBaggable> BitAnd<BitBag<Flag>> for BitBag<Flag>
-    where
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-    {
-        type Output = BitBag<Flag>;
+    impl<PossibleFlagsT: BitBaggable> BitAnd<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
+        type Output = BitBag<PossibleFlagsT>;
 
-        fn bitand(self, rhs: BitBag<Flag>) -> Self::Output {
-            Self::new_unchecked(self.inner & rhs.inner)
+        fn bitand(self, rhs: BitBag<PossibleFlagsT>) -> Self::Output {
+            Self::new(self.repr & rhs.repr)
         }
     }
 
-    impl<Flag: BitBaggable> BitAndAssign<BitBag<Flag>> for BitBag<Flag>
-    where
-        Flag: Copy,
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-    {
-        fn bitand_assign(&mut self, rhs: BitBag<Flag>) {
+    impl<PossibleFlagsT: BitBaggable> BitAndAssign<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
+        fn bitand_assign(&mut self, rhs: BitBag<PossibleFlagsT>) {
             *self = self.bitand(rhs);
         }
     }
 
-    impl<Flag: BitBaggable> BitOr<BitBag<Flag>> for BitBag<Flag>
-    where
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-    {
-        type Output = BitBag<Flag>;
+    impl<PossibleFlagsT: BitBaggable> BitOr<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
+        type Output = BitBag<PossibleFlagsT>;
 
-        fn bitor(self, rhs: BitBag<Flag>) -> Self::Output {
-            Self::new_unchecked(self.inner | rhs.inner)
+        fn bitor(self, rhs: BitBag<PossibleFlagsT>) -> Self::Output {
+            Self::new(self.repr | rhs.repr)
         }
     }
 
-    impl<Flag: BitBaggable> BitOrAssign<BitBag<Flag>> for BitBag<Flag>
-    where
-        Flag::Repr: BitAndAssign<Flag::Repr> + BitOrAssign<Flag::Repr>,
-        Flag: Copy,
-    {
-        fn bitor_assign(&mut self, rhs: BitBag<Flag>) {
+    impl<PossibleFlagsT: BitBaggable> BitOrAssign<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
+        fn bitor_assign(&mut self, rhs: BitBag<PossibleFlagsT>) {
             *self = self.bitor(rhs);
         }
     }

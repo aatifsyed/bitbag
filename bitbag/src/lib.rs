@@ -2,9 +2,8 @@
 //! Get started like this:
 //! ```
 //! use bitbag::{BitBag, BitBaggable};
-//! use strum::EnumIter;
 //!
-//! #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! #[derive(BitBaggable)]
 //! #[repr(u8)]
 //! enum Flags {
 //!     A = 0b0001,
@@ -15,28 +14,27 @@
 //! Basic functionality is provided by [`BitBag`]
 //! ```
 //! # use bitbag::{BitBag, BitBaggable};
-//! # use strum::EnumIter;
-//! # #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! # #[derive(BitBaggable)]
 //! # #[repr(u8)]
 //! # enum Flags {
 //! #     A = 0b0001,
 //! #     B = 0b0010,
 //! #     C = 0b0100,
 //! # }
-//! let mut bag = BitBag::<Flags>::new_unchecked(0b0011);
+//! let mut bag = BitBag::<Flags>::new(0b0011);
 //! assert!(bag.is_set(Flags::A));
 //! assert!(bag.is_set(Flags::B));
 //! assert!(!bag.is_set(Flags::C));
 //!
 //! bag.set(Flags::C);
-//! assert_eq!(*bag.as_ref(), 0b0111);
+//! assert_eq!(bag.get(), 0b0111);
 //!
 //! ```
-//! Deriving [`BitBaggable`] will also give you very ergonomic constructors
+//! Deriving [`BitOr`] will also give you very ergonomic constructors
 //! ```
-//! # use bitbag::{BitBag, BitBaggable};
-//! # use strum::EnumIter;
-//! # #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! use bitbag::{BitBaggable, BitOr};
+//! #[derive(BitBaggable, BitOr)]
+//! /* snip */
 //! # #[repr(u8)]
 //! # enum Flags {
 //! #     A = 0b0001,
@@ -49,26 +47,24 @@
 //! assert!(bag.is_set(Flags::B));
 //! assert!(bag.is_set(Flags::C));
 //! ```
-//! Additionally deriving [`EnumIter`], and [`Copy`] will allow fallible creation, and iteration over the set flags
 //! ```
 //! # use bitbag::{BitBag, BitBaggable};
-//! # use strum::EnumIter;
-//! # #[derive(BitBaggable, EnumIter, Clone, Copy)]
+//! # #[derive(BitBaggable, Clone, Copy)]
 //! # #[repr(u8)]
 //! # enum Flags {
 //! #     A = 0b0001,
 //! #     B = 0b0010,
 //! #     C = 0b0100,
 //! # }
-//! //                                  ⬇ this bit is not defined in Flags
-//! let result = BitBag::<Flags>::new(0b1000);
+//! //                                         ⬇ this bit is not defined in Flags
+//! let result = BitBag::<Flags>::new_strict(0b1000);
 //! assert!(matches!(
 //!     result,
 //!     Err(e) if e.given == 0b1000
 //! ));
 //!
-//! let bag = BitBag::<Flags>::new_unchecked(0b0110);
-//! for flag in &bag {
+//! let bag = BitBag::<Flags>::new(0b0110);
+//! for flag in bag {
 //!     match flag {
 //!         Flags::A => println!("Flag A was set"),
 //!         Flags::B => println!("Flag B was set"),
@@ -78,168 +74,235 @@
 //! ```
 mod bitwise;
 mod iter;
-pub use bitbag_derive::BitBaggable;
-pub use bitbag_derive::BoolBag;
-use derive_more::{AsRef, Binary};
-use itertools::Itertools;
-use num::{PrimInt, Zero};
-use std::collections::HashSet;
-use std::fmt;
+pub use bitbag_derive::{BitBaggable, BitOr, BoolBag};
+use itertools::Itertools as _;
+use num::{PrimInt, Zero as _};
 use std::{
     any::type_name,
-    fmt::{Binary, Debug, Display},
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign},
+    fmt::{self, Binary, Debug, Display},
+    ops::{BitAnd as _, BitOr as _, BitXor as _, Not as _},
 };
-use strum::IntoEnumIterator;
 
-#[cfg(doc)]
-use strum::EnumIter;
-
-/// The trait that allows an item to be placed inside a [`BitBag`].
+/// The trait that allows an enum to be placed inside a [`BitBag`].
 ///
 /// The basic requirements are
 /// - We must tell the type system the `primitive` in `#[repr(primitive)]`
 /// - We must be able to convert (from any variant) into that primitive
+/// - We must know all the variant names and values
 ///
-/// You can derive this with the `BitBaggable` derive macro
-pub trait BitBaggable: Into<Self::Repr> {
+/// You should derive this with the `BitBaggable` derive macro
+pub trait BitBaggable: Sized + 'static {
     type Repr: PrimInt;
+    fn into_repr(self) -> Self::Repr;
+    /// names, values and discriminants
+    const VARIANTS: &'static [(&'static str, Self, Self::Repr)];
 }
 
-/// Wraps a primitive, with helper methods for checking flags.
-/// [`AsRef`]s to the primitive if you wish to access it
-#[derive(Clone, Copy, Debug, Binary, AsRef, PartialEq, Eq, Hash)]
+/// Wraps a primitive, with helper methods for checking and setting flags.
+#[derive(Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct BitBag<Flags: BitBaggable> {
-    inner: Flags::Repr,
+pub struct BitBag<PossibleFlagsT: BitBaggable> {
+    pub repr: PossibleFlagsT::Repr,
 }
 
-impl<Flags: BitBaggable> BitBag<Flags> {
+impl<PossibleFlagsT: BitBaggable> Clone for BitBag<PossibleFlagsT> {
+    fn clone(&self) -> Self {
+        Self { repr: self.repr }
+    }
+}
+
+impl<PossibleFlagsT: BitBaggable> Copy for BitBag<PossibleFlagsT> {}
+
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     /// Get the inner primitive
-    pub fn into_inner(&self) -> Flags::Repr {
-        self.inner
+    pub fn get(&self) -> PossibleFlagsT::Repr {
+        self.repr
     }
 
-    /// Unset all flags
-    pub fn clear_all(&mut self) -> &mut Self {
-        self.inner.set_zero();
-        self
+    /// Create a new wrapper, permitting (and preserving) unrecognised bits
+    pub fn new(prim: PossibleFlagsT::Repr) -> Self {
+        Self { repr: prim }
     }
-    /// Don't check the primitive for non-flag bits
-    pub fn new_unchecked(prim: Flags::Repr) -> Self {
-        Self { inner: prim }
+
+    /// Create a wrapper with no bits set
+    pub fn empty() -> Self {
+        Self {
+            repr: PossibleFlagsT::Repr::zero(),
+        }
     }
 }
 
-impl<Flags: BitBaggable> Default for BitBag<Flags> {
-    /// The default has no flags set
+impl<PossibleFlagsT: BitBaggable> Default for BitBag<PossibleFlagsT> {
     fn default() -> Self {
         Self {
-            inner: Zero::zero(),
+            repr: PossibleFlagsT::Repr::zero(),
         }
     }
 }
 
-impl<Flags: BitBaggable> BitBag<Flags>
-where
-    Flags::Repr: BitAndAssign<Flags::Repr> + BitOrAssign<Flags::Repr>,
-{
-    /// Return `true` if the flag is set
-    pub fn is_set(&self, flag: Flags) -> bool {
-        let flag = flag.into();
-        self.inner.bitand(flag) == flag
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
+    pub fn is_set_raw(&self, raw: PossibleFlagsT::Repr) -> bool {
+        self.repr.bitand(raw) == raw
     }
-    /// Set the flag
-    pub fn set(&mut self, flag: Flags) -> &mut Self {
-        let flag = flag.into();
-        self.inner.bitor_assign(flag);
-        self
-    }
-    /// Unset the flag
-    pub fn unset(&mut self, flag: Flags) -> &mut Self {
-        let flag = flag.into();
-        self.inner.bitand_assign(!flag);
-        self
+    pub fn is_set(&self, flag: PossibleFlagsT) -> bool {
+        self.is_set_raw(flag.into_repr())
     }
 }
 
-impl<Flags: BitBaggable> BitBag<Flags>
-where
-    Flags: IntoEnumIterator,
-    Flags::Repr: BitAndAssign<Flags::Repr> + BitOrAssign<Flags::Repr>,
-{
-    /// Check the bits of `prim`, and return an [`NonFlagBits`] error if it has bits set which can't be represented by a flag.
-    pub fn new(prim: Flags::Repr) -> Result<Self, NonFlagBits<Flags::Repr>> {
-        let mask = Flags::iter()
-            .map(Into::into)
-            .fold(Flags::Repr::zero(), |accumulator, element| {
-                accumulator.bitor(element)
-            });
-        match mask.bitor(prim) == mask {
-            true => Ok(Self { inner: prim }),
-            false => Err(NonFlagBits { given: prim, mask }),
-        }
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
+    pub fn set_raw(&mut self, raw: PossibleFlagsT::Repr) -> &mut Self {
+        self.repr = self.repr.bitor(raw);
+        self
     }
-
-    /// Set all flags defined in the enum
+    pub fn set(&mut self, flag: PossibleFlagsT) -> &mut Self {
+        self.set_raw(flag.into_repr())
+    }
     pub fn set_all(&mut self) -> &mut Self {
-        for flag in Flags::iter() {
-            self.set(flag);
+        for (_, _, repr) in PossibleFlagsT::VARIANTS {
+            self.set_raw(*repr);
         }
+        self
+    }
+    pub fn clear_all(&mut self) -> &mut Self {
+        self.repr.set_zero();
         self
     }
 }
 
-impl<Flags: BitBaggable> BitBag<Flags>
-where
-    Flags: IntoEnumIterator + Clone,
-    Flags::Repr: BitAnd<Flags::Repr> + BitOr<Flags::Repr> + Into<bit_iter::BitIter<Flags::Repr>>,
-    bit_iter::BitIter<Flags::Repr>: Iterator<Item = usize>,
-{
-    pub fn check_nonoverlapping() -> Result<(), Overlapping<Flags>> {
-        for mut v in Flags::iter().permutations(2) {
-            let (a, b) = (v.remove(1), v.remove(0));
-            let (a_repr, b_repr) = (a.clone().into(), b.clone().into());
-            let (a_set_bits, b_set_bits) = (
-                a_repr.into().collect::<HashSet<_>>(),
-                b_repr.into().collect::<HashSet<_>>(),
-            );
-            if let Some(position) = a_set_bits
-                .intersection(&b_set_bits)
-                .next()
-                .map(Clone::clone)
-            {
-                return Err(Overlapping { a, b, position });
-            }
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
+    pub fn unset_raw(&mut self, raw: PossibleFlagsT::Repr) -> &mut Self {
+        self.repr = self.repr.bitand(raw.not());
+        self
+    }
+    pub fn unset(&mut self, flag: PossibleFlagsT) -> &mut Self {
+        self.unset_raw(flag.into_repr())
+    }
+}
+
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
+    /// Check the bits of `prim`, and return an [`NonFlagBits`] error if it has bits set which aren't defined in the enum.
+    pub fn new_strict(prim: PossibleFlagsT::Repr) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
+        match mask::<PossibleFlagsT>().bitor(prim) == mask::<PossibleFlagsT>() {
+            true => Ok(Self { repr: prim }),
+            false => Err(NonFlagBits { given: prim }),
         }
+    }
+}
+
+fn mask<PossibleFlagsT: BitBaggable>() -> PossibleFlagsT::Repr {
+    PossibleFlagsT::VARIANTS
+        .iter()
+        .fold(PossibleFlagsT::Repr::zero(), |accumulator, (_, _, repr)| {
+            accumulator.bitor(*repr)
+        })
+}
+
+#[derive(Debug)]
+pub struct OverlappingVariants<ReprT> {
+    pair: OverlappingPair<ReprT>,
+}
+
+#[derive(Debug)]
+struct OverlappingPair<ReprT> {
+    left: (&'static str, ReprT),
+    right: (&'static str, ReprT),
+    position: u32,
+}
+
+impl<ReprT> Display for OverlappingPair<ReprT>
+where
+    ReprT: PrimInt + Binary,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            left: (left_name, left),
+            right: (right_name, right),
+            position,
+        } = self;
+        let width = ReprT::zero().count_zeros();
+        macro_rules! print_wide_enough {
+            ($width:ident, $($bits:expr),*) => {
+                match $width {
+                    $(
+                        ..=$bits => {
+                            f.write_fmt(format_args!(
+                                concat!("0b{:0", stringify!($bits), "b} ({})\n"),
+                                left,
+                                left_name
+                            ))?;
+                            f.write_fmt(format_args!(
+                                concat!("0b{:0", stringify!($bits), "b} ({})\n"),
+                                right,
+                                right_name
+                            ))?;
+                            let pointer = std::iter::repeat(' ')
+                                .take(*position as usize + 1)
+                                .chain(['^'])
+                                .collect::<String>();
+                            f.write_str(&pointer)?;
+                        }
+                    )*
+                    _ => panic!("int is too wide"),
+                }
+            };
+        }
+        print_wide_enough!(width, 8, 16, 32, 64, 128);
         Ok(())
     }
 }
 
-impl<Flags: BitBaggable> fmt::Display for BitBag<Flags>
+impl<ReprT> Display for OverlappingVariants<ReprT>
 where
-    Flags: IntoEnumIterator + fmt::Display + Clone,
-    Flags::Repr: BitAndAssign<Flags::Repr> + BitOrAssign<Flags::Repr>,
+    ReprT: PrimInt + Binary,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.inner.is_zero() {
+        writeln!(f, "The following pair of variants has overlapping bits:")?;
+        writeln!(f, "{}", self.pair)?;
+        Ok(())
+    }
+}
+
+pub fn check_nonoverlapping<PossibleFlagsT: BitBaggable>(
+) -> Result<(), OverlappingVariants<PossibleFlagsT::Repr>> {
+    for permutation in PossibleFlagsT::VARIANTS.iter().permutations(2) {
+        let (left_name, _, left_repr) = permutation[0];
+        let (right_name, _, right_repr) = permutation[1];
+        let anded = left_repr.bitand(*right_repr);
+        if anded != PossibleFlagsT::Repr::zero() {
+            return Err(OverlappingVariants {
+                pair: OverlappingPair {
+                    left: (*left_name, *left_repr),
+                    right: (*right_name, *right_repr),
+                    position: anded.leading_zeros(),
+                },
+            });
+        }
+    }
+
+    Ok(())
+}
+
+impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.repr.is_zero() {
             return f.write_str("<unset>");
         }
 
         let mut first = true;
-        for flag in Flags::iter() {
-            if self.is_set(flag.clone()) {
+
+        for (name, _, repr) in PossibleFlagsT::VARIANTS {
+            if self.is_set_raw(*repr) {
                 match first {
                     true => {
-                        f.write_fmt(format_args!("{}", flag))?;
+                        f.write_fmt(format_args!("{name}"))?;
                         first = false
                     }
-                    false => f.write_fmt(format_args!(" | {}", flag))?,
+                    false => f.write_fmt(format_args!(" | {name}"))?,
                 }
             }
         }
 
-        if Self::new(self.inner).is_err() {
+        if Self::new_strict(self.repr).is_err() {
             match first {
                 true => f.write_str("<unrecognised bits>")?,
                 false => f.write_str(" | <unrecognised bits>")?,
@@ -252,74 +315,34 @@ where
 
 /// The error returned when calling a [`BitBag`] from a primitive which contains bits set which aren't represented by flags
 #[derive(Debug)]
-pub struct NonFlagBits<Repr> {
+#[non_exhaustive]
+pub struct NonFlagBits<PossibleFlagsT: BitBaggable> {
     /// The primitive which contained non-flag bits
-    pub given: Repr,
-    mask: Repr,
+    pub given: PossibleFlagsT::Repr,
 }
 
-impl<Repr: PrimInt + Binary> Display for NonFlagBits<Repr> {
+impl<PossibleFlagsT: BitBaggable> std::error::Error for NonFlagBits<PossibleFlagsT>
+where
+    PossibleFlagsT::Repr: Binary + Debug,
+    PossibleFlagsT: Debug,
+{
+}
+
+impl<PossibleFlagsT: BitBaggable> Display for NonFlagBits<PossibleFlagsT>
+where
+    PossibleFlagsT::Repr: Binary,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let excess = self.given.bitor(self.mask).bitxor(self.mask);
+        let excess = self
+            .given
+            .bitor(mask::<PossibleFlagsT>())
+            .bitxor(mask::<PossibleFlagsT>());
         write!(
             f,
-            "The bits {:#b} are not accounted for in the enum {}",
+            "The bits {:#b} are not accounted for in the flags {}",
             excess,
-            type_name::<Repr>()
+            type_name::<PossibleFlagsT>()
         )
-    }
-}
-
-impl<Repr: Debug + PrimInt + Binary> std::error::Error for NonFlagBits<Repr> {}
-
-/// The error returned when calling [`BitBag::check_nonoverlapping`]
-#[derive(Debug)]
-pub struct Overlapping<Flags> {
-    pub a: Flags,
-    pub b: Flags,
-    pub position: usize,
-}
-
-impl<Flags> Display for Overlapping<Flags>
-where
-    Flags: Debug + BitBaggable + Clone,
-    Flags::Repr: Binary + PrimInt,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { a, b, position } = self;
-        f.write_fmt(format_args!(
-            "{a:?} and {b:?} overlap at bit position {position}"
-        ))?;
-        let width = Flags::Repr::zero().count_zeros();
-        macro_rules! print_wide_enough {
-            ($width:ident, $($bits:expr),*) => {
-                match $width {
-                    $(
-                        ..=$bits => {
-                            f.write_fmt(format_args!(
-                                concat!(":\n0b{:0", stringify!($bits), "b} ({:?})\n"),
-                                a.clone().into(),
-                                a
-                            ))?;
-                            f.write_fmt(format_args!(
-                                concat!("0b{:0", stringify!($bits), "b} ({:?})\n"),
-                                b.clone().into(),
-                                b
-                            ))?;
-                            let pointer = std::iter::repeat(' ')
-                                .take(width as usize - position + 1)
-                                .chain(['^'])
-                                .collect::<String>();
-                            f.write_str(&pointer)?;
-                        }
-                    )*
-                    _ => (),
-                }
-            };
-        }
-
-        print_wide_enough!(width, 8, 16, 32, 64, 128);
-        Ok(())
     }
 }
 
@@ -332,18 +355,7 @@ pub(crate) mod tests {
     use super::*;
     use crate as bitbag;
 
-    #[derive(
-        Debug,
-        Copy,
-        Clone,
-        strum::EnumIter,
-        PartialEq,
-        Eq,
-        Hash,
-        BitBaggable,
-        BoolBag,
-        strum::Display,
-    )]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, BitBaggable, BitOr, BoolBag)]
     #[repr(u8)]
     pub enum FooFlags {
         A = 0b0000_0001,
@@ -353,40 +365,38 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn new_single_flag() -> anyhow::Result<()> {
-        let bag = BitBag::<FooFlags>::new(0b0000_0001)?;
+    fn new_single_flag() {
+        let bag = BitBag::<FooFlags>::new_strict(0b0000_0001).unwrap();
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
-        Ok(())
     }
 
     #[test]
-    fn new_multiple_flags() -> anyhow::Result<()> {
-        let bag = BitBag::<FooFlags>::new(0b0000_1101)?;
+    fn new_multiple_flags() {
+        let bag = BitBag::<FooFlags>::new_strict(0b0000_1101).unwrap();
         let flags = bag.into_iter().collect::<HashSet<_>>();
         assert!(flags.len() == 3);
         assert!(flags.contains(&FooFlags::A));
         assert!(flags.contains(&FooFlags::C));
         assert!(flags.contains(&FooFlags::D));
-        Ok(())
     }
 
     #[test]
     fn fail_new_single_non_flag() {
-        let res = BitBag::<FooFlags>::new(0b1000_0000);
+        let res = BitBag::<FooFlags>::new_strict(0b1000_0000);
         assert!(matches!(res, Err(_)));
     }
 
     #[test]
     fn fail_new_mixed() {
-        let res = BitBag::<FooFlags>::new(0b1000_0001);
+        let res = BitBag::<FooFlags>::new_strict(0b1000_0001);
         assert!(matches!(res, Err(_)));
     }
 
     #[test]
     fn unchecked() {
-        let bag = BitBag::<FooFlags>::new_unchecked(0b1000_0001);
+        let bag = BitBag::<FooFlags>::new(0b1000_0001);
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
@@ -396,14 +406,14 @@ pub(crate) mod tests {
     fn manually_set() {
         let mut bag = BitBag::<FooFlags>::default();
         bag.set(FooFlags::A).set(FooFlags::B);
-        assert_eq!(bag.into_inner(), 0b0000_0011);
+        assert_eq!(bag.get(), 0b0000_0011);
     }
 
     #[test]
     fn manually_unset() {
-        let mut bag = BitBag::<FooFlags>::new_unchecked(0b0000_0011);
+        let mut bag = BitBag::<FooFlags>::new(0b0000_0011);
         bag.unset(FooFlags::A);
-        assert_eq!(bag.into_inner(), 0b0000_0010);
+        assert_eq!(bag.get(), 0b0000_0010);
     }
 
     #[test]
@@ -459,7 +469,7 @@ pub(crate) mod tests {
         assert_eq!("<unset>", bitbag.to_string());
     }
 
-    #[derive(Debug, Copy, Clone, strum::EnumIter, PartialEq, Eq, BitBaggable)]
+    #[derive(BitBaggable)]
     #[repr(u16)]
     pub enum BadFlags {
         A = 0b0000_0001,
@@ -470,14 +480,15 @@ pub(crate) mod tests {
 
     #[test]
     fn non_overlapping() {
-        BitBag::<FooFlags>::check_nonoverlapping().unwrap();
-        let e = BitBag::<BadFlags>::check_nonoverlapping().unwrap_err();
+        check_nonoverlapping::<FooFlags>().unwrap();
+        let e = check_nonoverlapping::<BadFlags>().unwrap_err();
         assert_eq!(
             indoc!(
-                "D and C overlap at bit position 2:
-            0b0000000000001100 (D)
-            0b0000000000000100 (C)
-                           ^"
+                "The following pair of variants has overlapping bits:
+                0b0000000000000100 (C)
+                0b0000000000001100 (D)
+                              ^
+                "
             ),
             e.to_string()
         );

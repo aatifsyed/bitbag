@@ -12,14 +12,10 @@ authors = ["Aatif Syed <aatif@aatifsyed.uk>"]
 readme = "../README.md"
 
 [dependencies]
-derive_more = "0.99.16"
 num = "0.4.0"
-strum = { version = "0.21.0", features = ["derive"] }
-bitbag-derive = { path = "../bitbag-derive", version = "0.2.1" }
+bitbag-derive = { path = "../bitbag-derive" }
 itertools = "0.10.5"
-bit-iter = "1.1.1"
 
 [dev-dependencies]
-anyhow = "1.0.42"
 bitflags = "1.2.1"
 indoc = "1.0.8"
