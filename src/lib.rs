@@ -47,21 +47,18 @@
 //! assert!(bag.is_set(Flags::B));
 //! assert!(bag.is_set(Flags::C));
 //! ```
+//! You can also choose to reject unrecognised bits, and iterate over the set flags.
 //! ```
 //! # use bitbag::{BitBag, BitBaggable};
-//! # #[derive(BitBaggable, Clone, Copy)]
+//! # #[derive(BitBaggable, Debug, Clone)]
 //! # #[repr(u8)]
 //! # enum Flags {
 //! #     A = 0b0001,
 //! #     B = 0b0010,
 //! #     C = 0b0100,
 //! # }
-//! //                                         ⬇ this bit is not defined in Flags
-//! let result = BitBag::<Flags>::new_strict(0b1000);
-//! assert!(matches!(
-//!     result,
-//!     Err(e) if e.given == 0b1000
-//! ));
+//! BitBag::<Flags>::new_strict(0b1000).unwrap_err();
+//! // "The bits 0b1000 are not accounted for in the enum Flags"
 //!
 //! let bag = BitBag::<Flags>::new(0b0110);
 //! for flag in bag {
@@ -74,7 +71,7 @@
 //! ```
 mod bitwise;
 mod iter;
-pub use bitbag_derive::{BitBaggable, BitOr, BoolBag};
+pub use bitbag_derive::{BitBaggable, BitOr};
 use itertools::Itertools as _;
 use num::{PrimInt, Zero as _};
 use std::{
@@ -339,7 +336,7 @@ where
             .bitxor(mask::<PossibleFlagsT>());
         write!(
             f,
-            "The bits {:#b} are not accounted for in the flags {}",
+            "The bits {:#b} are not accounted for in the enum {}",
             excess,
             type_name::<PossibleFlagsT>()
         )
@@ -355,7 +352,7 @@ pub(crate) mod tests {
     use super::*;
     use crate as bitbag;
 
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, BitBaggable, BitOr, BoolBag)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, BitBaggable, BitOr)]
     #[repr(u8)]
     pub enum FooFlags {
         A = 0b0000_0001,
@@ -414,51 +411,6 @@ pub(crate) mod tests {
         let mut bag = BitBag::<FooFlags>::new(0b0000_0011);
         bag.unset(FooFlags::A);
         assert_eq!(bag.get(), 0b0000_0010);
-    }
-
-    #[test]
-    fn empty_bitbag_to_boolbag() {
-        let bitbag = BitBag::<FooFlags>::default();
-        let boolbag = FooFlagsBoolBag {
-            a: false,
-            b: false,
-            c: false,
-            d: false,
-        };
-        assert_eq!(FooFlagsBoolBag::from(bitbag), boolbag)
-    }
-
-    #[test]
-    fn single_bitbag_to_boolbag() {
-        let mut bitbag = BitBag::<FooFlags>::default();
-        bitbag.set(FooFlags::A);
-        let boolbag = FooFlagsBoolBag {
-            a: true,
-            b: false,
-            c: false,
-            d: false,
-        };
-        assert_eq!(FooFlagsBoolBag::from(bitbag), boolbag)
-    }
-
-    #[test]
-    fn empty_boolbag_to_bitbag() {
-        let boolbag = FooFlagsBoolBag::default();
-        let bitbag = boolbag.into();
-        assert_eq!(BitBag::<FooFlags>::default(), bitbag)
-    }
-
-    #[test]
-    fn single_boolbag_to_bitbag() {
-        let boolbag = FooFlagsBoolBag {
-            c: true,
-            ..Default::default()
-        };
-        let bitbag: BitBag<_> = boolbag.into();
-        assert!(!bitbag.is_set(FooFlags::A));
-        assert!(!bitbag.is_set(FooFlags::B));
-        assert!(bitbag.is_set(FooFlags::C));
-        assert!(!bitbag.is_set(FooFlags::D));
     }
 
     #[test]

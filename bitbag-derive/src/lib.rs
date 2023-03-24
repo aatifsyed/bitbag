@@ -1,8 +1,5 @@
-use convert_case::Casing;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-#[cfg(doc)]
-use std::ops::BitOr;
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input, DataEnum, DeriveInput, Fields, Ident,
@@ -108,6 +105,7 @@ fn expand_bitbaggable(input: &DeriveInput) -> syn::Result<TokenStream> {
     });
 
     Ok(quote! {
+        #[automatically_derived]
         impl bitbag::BitBaggable for #user_ident {
             type Repr = #repr;
             fn into_repr(self) -> Self::Repr {
@@ -124,6 +122,7 @@ fn expand_bitbaggable(input: &DeriveInput) -> syn::Result<TokenStream> {
 fn expand_bitor(input: &DeriveInput) -> syn::Result<TokenStream> {
     let user_ident = &input.ident;
     Ok(quote! {
+        #[automatically_derived]
         impl core::ops::BitOr<Self> for #user_ident
         where
             Self: bitbag::BitBaggable,
@@ -136,6 +135,7 @@ fn expand_bitor(input: &DeriveInput) -> syn::Result<TokenStream> {
             }
         }
 
+        #[automatically_derived]
         impl core::ops::BitOr<bitbag::BitBag<Self>> for #user_ident
         where
             Self: bitbag::BitBaggable,
@@ -162,77 +162,6 @@ pub fn derive_bitor(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     expand_bitor(&user_struct)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
-}
-
-fn snake_case_ident(ident: &Ident) -> Ident {
-    Ident::new(
-        &ident.to_string().to_case(convert_case::Case::Snake),
-        ident.span(),
-    )
-}
-
-/// Derives a new BoolBag struct for a field-less enum
-#[proc_macro_derive(BoolBag)]
-pub fn derive_boolbag(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let user_struct = parse_macro_input!(input as DeriveInput);
-    if let syn::Data::Enum(user_enum) = user_struct.data {
-        let vis = user_struct.vis;
-        let user_ident = &user_struct.ident;
-        let boolbag_ident = Ident::new(
-            &format!("{}BoolBag", user_ident),
-            Ident::span(&user_struct.ident),
-        );
-
-        let boolbag_fields = user_enum
-            .variants
-            .iter()
-            .map(|variant| snake_case_ident(&variant.ident));
-
-        let set_boolbag_fields_from_bitbag = user_enum.variants.iter().map(|variant| {
-            let variant_name = &variant.ident;
-            let field_name = snake_case_ident(&variant.ident);
-            quote! {
-                #field_name: bitbag.is_set(#user_ident::#variant_name)
-            }
-        });
-
-        let set_bitbag_flags_from_boolbag = user_enum.variants.iter().map(|variant| {
-            let variant_name = &variant.ident;
-            let field_name = snake_case_ident(&variant.ident);
-            quote! {
-                if boolbag.#field_name {
-                    bitbag.set(#user_ident::#variant_name);
-                }
-            }
-        });
-
-        let appended = quote! {
-            #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
-            #vis struct #boolbag_ident {
-                #(pub #boolbag_fields: bool),*
-            }
-
-            impl From<bitbag::BitBag<#user_ident>> for #boolbag_ident {
-                fn from(bitbag: bitbag::BitBag<#user_ident>) -> #boolbag_ident {
-                    #boolbag_ident {
-                        #(#set_boolbag_fields_from_bitbag),*
-                    }
-                }
-            }
-
-            impl From<#boolbag_ident> for bitbag::BitBag<#user_ident> {
-                fn from(boolbag: #boolbag_ident) -> bitbag::BitBag<#user_ident> {
-                    let mut bitbag = bitbag::BitBag::<#user_ident>::default();
-                    #(#set_bitbag_flags_from_boolbag);*
-                    bitbag
-                }
-            }
-        };
-
-        appended.into()
-    } else {
-        todo!()
-    }
 }
 
 #[cfg(test)]
