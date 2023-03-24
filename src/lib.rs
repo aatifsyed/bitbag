@@ -98,24 +98,36 @@ pub struct BitBag<PossibleFlagsT: BitBaggable> {
     pub repr: PossibleFlagsT::ReprT,
 }
 
+/// Constructors
 impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
-    /// Get a copy of the inner primitive
-    pub const fn get(&self) -> PossibleFlagsT::ReprT {
-        self.repr
-    }
-
-    /// Create a new wrapper, permitting (and preserving) unrecognised bits
+    /// New bag, permitting (and preserving) unrecognised bits
     pub const fn new(prim: PossibleFlagsT::ReprT) -> Self {
         Self { repr: prim }
     }
 
-    /// Create a wrapper with no bits set
+    /// New bag with no bits set
     pub fn empty() -> Self {
         Self {
             repr: PossibleFlagsT::ReprT::zero(),
         }
     }
 
+    /// New bag with all defined bits set
+    pub fn all() -> Self {
+        *Self::empty().set_all()
+    }
+
+    /// Check the bits of `prim`, and return a [`NonFlagBits`] error if it has bits set which aren't defined in the enum.
+    pub fn new_strict(prim: PossibleFlagsT::ReprT) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
+        match unrecognised_bits::<PossibleFlagsT>(prim) {
+            Some(unrecognised) => Err(NonFlagBits { unrecognised }),
+            None => Ok(Self { repr: prim }),
+        }
+    }
+}
+
+/// Properties
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     pub fn is_empty(&self) -> bool {
         self.repr.is_zero()
     }
@@ -128,13 +140,24 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
         self.is_set_raw(flag.into_repr())
     }
 
+    pub fn unrecognised_bits(&self) -> Option<PossibleFlagsT::ReprT> {
+        unrecognised_bits::<PossibleFlagsT>(self.repr)
+    }
+
+    pub fn has_unrecognised_bits(&self) -> bool {
+        self.unrecognised_bits().is_some()
+    }
+}
+
+/// Builder
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
+    pub fn set(&mut self, flag: PossibleFlagsT) -> &mut Self {
+        self.set_raw(flag.into_repr())
+    }
+
     pub fn set_raw(&mut self, raw: PossibleFlagsT::ReprT) -> &mut Self {
         self.repr = self.repr.bitor(raw);
         self
-    }
-
-    pub fn set(&mut self, flag: PossibleFlagsT) -> &mut Self {
-        self.set_raw(flag.into_repr())
     }
 
     pub fn set_all(&mut self) -> &mut Self {
@@ -158,12 +181,9 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
         self.unset_raw(flag.into_repr())
     }
 
-    /// Check the bits of `prim`, and return a [`NonFlagBits`] error if it has bits set which aren't defined in the enum.
-    pub fn new_strict(prim: PossibleFlagsT::ReprT) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
-        match mask::<PossibleFlagsT>().bitor(prim) == mask::<PossibleFlagsT>() {
-            true => Ok(Self { repr: prim }),
-            false => Err(NonFlagBits { given: prim }),
-        }
+    /// Get a copy of the inner primitive
+    pub const fn get(&self) -> PossibleFlagsT::ReprT {
+        self.repr
     }
 }
 
@@ -171,8 +191,14 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct NonFlagBits<PossibleFlagsT: BitBaggable> {
-    /// The primitive which contained non-flag bits
-    pub given: PossibleFlagsT::ReprT,
+    unrecognised: PossibleFlagsT::ReprT,
+}
+
+impl<PossibleFlagsT: BitBaggable> NonFlagBits<PossibleFlagsT> {
+    /// The bits which weren't recognised
+    pub fn unrecognised(&self) -> PossibleFlagsT::ReprT {
+        self.unrecognised
+    }
 }
 
 impl<PossibleFlagsT: BitBaggable> std::error::Error for NonFlagBits<PossibleFlagsT>
@@ -187,24 +213,12 @@ where
     PossibleFlagsT::ReprT: Binary,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let excess = self
-            .given
-            .bitor(mask::<PossibleFlagsT>())
-            .bitxor(mask::<PossibleFlagsT>());
         write!(
             f,
             "The bits {:#b} are not accounted for in the enum {}",
-            excess,
+            self.unrecognised,
             type_name::<PossibleFlagsT>()
         )
-    }
-}
-
-impl<PossibleFlagsT: BitBaggable> Default for BitBag<PossibleFlagsT> {
-    fn default() -> Self {
-        Self {
-            repr: PossibleFlagsT::ReprT::zero(),
-        }
     }
 }
 
@@ -215,9 +229,19 @@ fn mask<PossibleFlagsT: BitBaggable>() -> PossibleFlagsT::ReprT {
     )
 }
 
+fn unrecognised_bits<PossibleFlagsT: BitBaggable>(
+    repr: PossibleFlagsT::ReprT,
+) -> Option<PossibleFlagsT::ReprT> {
+    let mask = mask::<PossibleFlagsT>();
+    match mask.bitor(repr) == mask {
+        true => None,
+        false => Some(mask.bitor(repr).bitxor(repr)),
+    }
+}
+
 impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.repr.is_zero() {
+        if self.is_empty() {
             return f.write_str("<unset>");
         }
 
@@ -235,7 +259,7 @@ impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
             }
         }
 
-        if Self::new_strict(self.repr).is_err() {
+        if self.has_unrecognised_bits() {
             match first {
                 true => f.write_str("<unrecognised bits>")?,
                 false => f.write_str(" | <unrecognised bits>")?,

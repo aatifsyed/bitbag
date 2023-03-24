@@ -2,6 +2,7 @@
 //! So manually implement here.
 
 use crate::{BitBag, BitBaggable};
+use num::Zero as _;
 use std::{
     fmt::{self, Debug},
     hash::Hash,
@@ -40,3 +41,11 @@ impl<PossibleFlagsT: BitBaggable> Clone for BitBag<PossibleFlagsT> {
 }
 
 impl<PossibleFlagsT: BitBaggable> Copy for BitBag<PossibleFlagsT> {}
+
+impl<PossibleFlagsT: BitBaggable> Default for BitBag<PossibleFlagsT> {
+    fn default() -> Self {
+        Self {
+            repr: PossibleFlagsT::ReprT::zero(),
+        }
+    }
+}
