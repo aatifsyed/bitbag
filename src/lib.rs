@@ -71,7 +71,7 @@
 //! ```
 mod bitwise;
 mod iter;
-pub use bitbag_derive::{BitBaggable, BitOr};
+pub use bitbag_derive::{check_nonoverlapping, BitBaggable, BitOr};
 use itertools::Itertools as _;
 use num::{PrimInt, Zero as _};
 use std::{
@@ -109,12 +109,12 @@ impl<PossibleFlagsT: BitBaggable> Copy for BitBag<PossibleFlagsT> {}
 
 impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     /// Get a copy of the inner primitive
-    pub fn get(&self) -> PossibleFlagsT::ReprT {
+    pub const fn get(&self) -> PossibleFlagsT::ReprT {
         self.repr
     }
 
     /// Create a new wrapper, permitting (and preserving) unrecognised bits
-    pub fn new(prim: PossibleFlagsT::ReprT) -> Self {
+    pub const fn new(prim: PossibleFlagsT::ReprT) -> Self {
         Self { repr: prim }
     }
 
@@ -168,6 +168,39 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
             true => Ok(Self { repr: prim }),
             false => Err(NonFlagBits { given: prim }),
         }
+    }
+}
+
+/// The error returned when calling a [`BitBag`] from a primitive which contains bits set which aren't represented by flags
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct NonFlagBits<PossibleFlagsT: BitBaggable> {
+    /// The primitive which contained non-flag bits
+    pub given: PossibleFlagsT::ReprT,
+}
+
+impl<PossibleFlagsT: BitBaggable> std::error::Error for NonFlagBits<PossibleFlagsT>
+where
+    PossibleFlagsT::ReprT: Binary + Debug,
+    PossibleFlagsT: Debug,
+{
+}
+
+impl<PossibleFlagsT: BitBaggable> Display for NonFlagBits<PossibleFlagsT>
+where
+    PossibleFlagsT::ReprT: Binary,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let excess = self
+            .given
+            .bitor(mask::<PossibleFlagsT>())
+            .bitxor(mask::<PossibleFlagsT>());
+        write!(
+            f,
+            "The bits {:#b} are not accounted for in the enum {}",
+            excess,
+            type_name::<PossibleFlagsT>()
+        )
     }
 }
 
@@ -251,6 +284,27 @@ where
     }
 }
 
+/// Check that the enum doesn't have variants where the bits overlap.
+/// ```
+/// use bitbag::BitBaggable;
+/// #[derive(BitBaggable)]
+/// #[repr(u8)]
+/// enum GoodFlags {
+///     A = 0b0001,
+///     B = 0b0010,
+/// }
+///
+/// bitbag::check_nonoverlapping::<GoodFlags>().unwrap();
+///
+/// #[derive(BitBaggable)]
+/// #[repr(u8)]
+/// enum BadFlags {
+///     A = 0b0001,
+///     B = 0b0011, // rightmost bit is set in more than one variant
+/// }
+///
+/// bitbag::check_nonoverlapping::<BadFlags>().unwrap_err();
+/// ```
 pub fn check_nonoverlapping<PossibleFlagsT: BitBaggable>(
 ) -> Result<(), OverlappingVariants<PossibleFlagsT::ReprT>> {
     for permutation in PossibleFlagsT::VARIANTS.iter().permutations(2) {
@@ -299,39 +353,6 @@ impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
         }
 
         Ok(())
-    }
-}
-
-/// The error returned when calling a [`BitBag`] from a primitive which contains bits set which aren't represented by flags
-#[derive(Debug)]
-#[non_exhaustive]
-pub struct NonFlagBits<PossibleFlagsT: BitBaggable> {
-    /// The primitive which contained non-flag bits
-    pub given: PossibleFlagsT::ReprT,
-}
-
-impl<PossibleFlagsT: BitBaggable> std::error::Error for NonFlagBits<PossibleFlagsT>
-where
-    PossibleFlagsT::ReprT: Binary + Debug,
-    PossibleFlagsT: Debug,
-{
-}
-
-impl<PossibleFlagsT: BitBaggable> Display for NonFlagBits<PossibleFlagsT>
-where
-    PossibleFlagsT::ReprT: Binary,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let excess = self
-            .given
-            .bitor(mask::<PossibleFlagsT>())
-            .bitxor(mask::<PossibleFlagsT>());
-        write!(
-            f,
-            "The bits {:#b} are not accounted for in the enum {}",
-            excess,
-            type_name::<PossibleFlagsT>()
-        )
     }
 }
 

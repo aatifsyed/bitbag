@@ -1,8 +1,9 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::{
-    parse::{Parse, ParseStream},
-    parse_macro_input, DataEnum, DeriveInput, Fields, Ident,
+    meta::ParseNestedMeta,
+    parse::{Parse, ParseStream, Parser},
+    parse_macro_input, DataEnum, DeriveInput, Fields, Ident, LitStr,
 };
 
 #[derive(Debug, Clone)]
@@ -161,6 +162,134 @@ pub fn derive_bitbaggable(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 pub fn derive_bitor(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let user_struct = parse_macro_input!(input as DeriveInput);
     expand_bitor(&user_struct)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[derive(Debug)]
+struct CheckConfig {
+    unit_test: bool,
+    compile_test: bool,
+}
+
+impl Parse for CheckConfig {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut config = CheckConfig {
+            unit_test: false,
+            compile_test: false,
+        };
+
+        syn::meta::parser(|stage| config.parse_stage(stage)).parse2(input.parse()?)?;
+        if !config.unit_test && !config.compile_test {
+            config.unit_test = true; // default behaviour if left unspecified
+        }
+        Ok(config)
+    }
+}
+
+impl CheckConfig {
+    fn parse_stage(&mut self, stage: ParseNestedMeta) -> syn::Result<()> {
+        if stage.path.is_ident("unit_test") || stage.path.is_ident("unit") {
+            if !stage.input.is_empty() {
+                return Err(stage.error("`unit_test` doesn't take any arguments"));
+            }
+            if self.unit_test {
+                return Err(stage.error("`unit_test` can only be specified once"));
+            }
+            self.unit_test = true
+        } else if stage.path.is_ident("compile_test") || stage.path.is_ident("compile") {
+            if !stage.input.is_empty() {
+                return Err(stage.error("`compile_test` doesn't take any arguments"));
+            }
+            if self.compile_test {
+                return Err(stage.error("`compile_test` can only be specified once"));
+            }
+            self.compile_test = true
+        } else {
+            return Err(stage.error(format!(
+                "unexpected argument `{}`, expected `unit_test` or `compile_test``",
+                stage.path.to_token_stream()
+            )));
+        }
+        Ok(())
+    }
+}
+
+fn expand_check_nonoverlapping(
+    config: &CheckConfig,
+    input: &DeriveInput,
+) -> syn::Result<TokenStream> {
+    let (data, repr) = extract_enum_and_repr(input)?;
+
+    let unit_test = match config.unit_test {
+        true => {
+            let struct_ident = &input.ident;
+            let fn_ident = Ident::new(
+                &format!("bitbag_unit_test_{}", &input.ident),
+                input.ident.span(),
+            );
+            Some(quote!(
+                #[cfg(test)]
+                #[test]
+                #[allow(non_snake_case)]
+                fn #fn_ident() {
+                    bitbag::check_nonoverlapping::<#struct_ident>().unwrap();
+                }
+            ))
+        }
+        false => None,
+    };
+    let compile_test = match config.compile_test {
+        true => {
+            let mut pairs = Vec::new();
+            for right_ix in (0..data.variants.len()).rev() {
+                for left_ix in 0..right_ix {
+                    pairs.push((
+                        &data.variants[left_ix].ident,
+                        &data.variants[right_ix].ident,
+                    ))
+                }
+            }
+            let checkers = pairs.into_iter().map(|(left, right)| {
+                let struct_ident = &input.ident;
+                let panic_msg = LitStr::new(
+                    &format!("{left} and {right} have overlapping bits"),
+                    Span::call_site(),
+                );
+                quote!(
+                    {
+                        let left = #struct_ident::#left as #repr;
+                        let right = #struct_ident::#right as #repr;
+                        if left & right != 0 {
+                            panic!(#panic_msg)
+                        }
+                    }
+                )
+            });
+            Some(quote!(
+                #[allow(warnings)]
+                const _: () = {
+                    #(#checkers)*
+                };
+            ))
+        }
+        false => None,
+    };
+    Ok(quote!(
+        #input
+        #unit_test
+        #compile_test
+    ))
+}
+
+#[proc_macro_attribute]
+pub fn check_nonoverlapping(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(item as DeriveInput);
+    let config = parse_macro_input!(attr as CheckConfig);
+    expand_check_nonoverlapping(&config, &input)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
