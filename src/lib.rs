@@ -71,8 +71,7 @@
 //! ```
 mod bitwise;
 mod iter;
-pub use bitbag_derive::{check_nonoverlapping, BitBaggable, BitOr};
-use itertools::Itertools as _;
+pub use bitbag_derive::{check, BitBaggable, BitOr};
 use num::{PrimInt, Zero as _};
 use std::{
     any::type_name,
@@ -219,112 +218,6 @@ fn mask<PossibleFlagsT: BitBaggable>() -> PossibleFlagsT::ReprT {
     )
 }
 
-#[derive(Debug)]
-pub struct OverlappingVariants<ReprT> {
-    pair: OverlappingPair<ReprT>,
-}
-
-#[derive(Debug)]
-struct OverlappingPair<ReprT> {
-    left: (&'static str, ReprT),
-    right: (&'static str, ReprT),
-    position: u32,
-}
-
-impl<ReprT> Display for OverlappingPair<ReprT>
-where
-    ReprT: PrimInt + Binary,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            left: (left_name, left),
-            right: (right_name, right),
-            position,
-        } = self;
-        let width = ReprT::zero().count_zeros();
-        macro_rules! print_wide_enough {
-            ($width:ident, $($bits:expr),*) => {
-                match $width {
-                    $(
-                        ..=$bits => {
-                            f.write_fmt(format_args!(
-                                concat!("0b{:0", stringify!($bits), "b} ({})\n"),
-                                left,
-                                left_name
-                            ))?;
-                            f.write_fmt(format_args!(
-                                concat!("0b{:0", stringify!($bits), "b} ({})\n"),
-                                right,
-                                right_name
-                            ))?;
-                            let pointer = std::iter::repeat(' ')
-                                .take(*position as usize + 1)
-                                .chain(['^'])
-                                .collect::<String>();
-                            f.write_str(&pointer)?;
-                        }
-                    )*
-                    _ => panic!("int is too wide"),
-                }
-            };
-        }
-        print_wide_enough!(width, 8, 16, 32, 64, 128);
-        Ok(())
-    }
-}
-
-impl<ReprT> Display for OverlappingVariants<ReprT>
-where
-    ReprT: PrimInt + Binary,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "The following pair of variants has overlapping bits:")?;
-        writeln!(f, "{}", self.pair)?;
-        Ok(())
-    }
-}
-
-/// Check that the enum doesn't have variants where the bits overlap.
-/// ```
-/// use bitbag::BitBaggable;
-/// #[derive(BitBaggable)]
-/// #[repr(u8)]
-/// enum GoodFlags {
-///     A = 0b0001,
-///     B = 0b0010,
-/// }
-///
-/// bitbag::check_nonoverlapping::<GoodFlags>().unwrap();
-///
-/// #[derive(BitBaggable)]
-/// #[repr(u8)]
-/// enum BadFlags {
-///     A = 0b0001,
-///     B = 0b0011, // rightmost bit is set in more than one variant
-/// }
-///
-/// bitbag::check_nonoverlapping::<BadFlags>().unwrap_err();
-/// ```
-pub fn check_nonoverlapping<PossibleFlagsT: BitBaggable>(
-) -> Result<(), OverlappingVariants<PossibleFlagsT::ReprT>> {
-    for permutation in PossibleFlagsT::VARIANTS.iter().permutations(2) {
-        let (left_name, _, left_repr) = permutation[0];
-        let (right_name, _, right_repr) = permutation[1];
-        let anded = left_repr.bitand(*right_repr);
-        if anded != PossibleFlagsT::ReprT::zero() {
-            return Err(OverlappingVariants {
-                pair: OverlappingPair {
-                    left: (*left_name, *left_repr),
-                    right: (*right_name, *right_repr),
-                    position: anded.leading_zeros(),
-                },
-            });
-        }
-    }
-
-    Ok(())
-}
-
 impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.repr.is_zero() {
@@ -359,8 +252,6 @@ impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashSet;
-
-    use indoc::indoc;
 
     use super::*;
     use crate as bitbag;
@@ -441,21 +332,5 @@ pub(crate) mod tests {
         B = 0b0000_0010,
         C = 0b0000_0100,
         D = 0b0000_1100,
-    }
-
-    #[test]
-    fn non_overlapping() {
-        check_nonoverlapping::<FooFlags>().unwrap();
-        let e = check_nonoverlapping::<BadFlags>().unwrap_err();
-        assert_eq!(
-            indoc!(
-                "The following pair of variants has overlapping bits:
-                0b0000000000000100 (C)
-                0b0000000000001100 (D)
-                              ^
-                "
-            ),
-            e.to_string()
-        );
     }
 }

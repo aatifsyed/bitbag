@@ -2,7 +2,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::{
     meta::ParseNestedMeta,
-    parse::{Parse, ParseStream, Parser},
+    parse::{Nothing, Parse, ParseStream, Parser},
     parse_macro_input, DataEnum, DeriveInput, Fields, Ident, LitStr,
 };
 
@@ -215,81 +215,66 @@ impl CheckConfig {
     }
 }
 
-fn expand_check_nonoverlapping(
-    config: &CheckConfig,
-    input: &DeriveInput,
-) -> syn::Result<TokenStream> {
+fn expand_check(input: &DeriveInput) -> syn::Result<TokenStream> {
     let (data, repr) = extract_enum_and_repr(input)?;
+    let struct_ident = &input.ident;
 
-    let unit_test = match config.unit_test {
-        true => {
-            let struct_ident = &input.ident;
-            let fn_ident = Ident::new(
-                &format!("bitbag_unit_test_{}", &input.ident),
-                input.ident.span(),
-            );
-            Some(quote!(
-                #[cfg(test)]
-                #[test]
-                #[allow(non_snake_case)]
-                fn #fn_ident() {
-                    bitbag::check_nonoverlapping::<#struct_ident>().unwrap();
-                }
+    let mut pairs = Vec::new();
+    for right_ix in (0..data.variants.len()).rev() {
+        for left_ix in 0..right_ix {
+            pairs.push((
+                &data.variants[left_ix].ident,
+                &data.variants[right_ix].ident,
             ))
         }
-        false => None,
-    };
-    let compile_test = match config.compile_test {
-        true => {
-            let mut pairs = Vec::new();
-            for right_ix in (0..data.variants.len()).rev() {
-                for left_ix in 0..right_ix {
-                    pairs.push((
-                        &data.variants[left_ix].ident,
-                        &data.variants[right_ix].ident,
-                    ))
+    }
+    let overlap_checkers = pairs.into_iter().map(|(left, right)| {
+        let panic_msg = LitStr::new(
+            &format!("{struct_ident}::{left} and {struct_ident}::{right} have overlapping bits"),
+            Span::call_site(),
+        );
+        quote!(
+            {
+                let left = #struct_ident::#left as #repr;
+                let right = #struct_ident::#right as #repr;
+                if left & right != 0 {
+                    panic!(#panic_msg)
                 }
             }
-            let checkers = pairs.into_iter().map(|(left, right)| {
-                let struct_ident = &input.ident;
-                let panic_msg = LitStr::new(
-                    &format!("{left} and {right} have overlapping bits"),
-                    Span::call_site(),
-                );
-                quote!(
-                    {
-                        let left = #struct_ident::#left as #repr;
-                        let right = #struct_ident::#right as #repr;
-                        if left & right != 0 {
-                            panic!(#panic_msg)
-                        }
-                    }
-                )
-            });
-            Some(quote!(
-                #[allow(warnings)]
-                const _: () = {
-                    #(#checkers)*
-                };
-            ))
-        }
-        false => None,
-    };
+        )
+    });
+
+    let nonzero_checkers = data.variants.iter().map(|variant| {
+        let variant = &variant.ident;
+        let panic_msg = LitStr::new(
+            &format!("{struct_ident}::{variant} has no bits set"),
+            Span::call_site(),
+        );
+        quote!(
+            if #struct_ident::#variant as #repr == 0 {
+                panic!(#panic_msg)
+            }
+        )
+    });
+
     Ok(quote!(
         #input
-        #unit_test
-        #compile_test
+        #[allow(warnings)]
+        const _: () = {
+            #(#overlap_checkers)*
+            #(#nonzero_checkers)*
+        };
     ))
 }
 
 #[proc_macro_attribute]
-pub fn check_nonoverlapping(
+pub fn check(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
-    let config = parse_macro_input!(attr as CheckConfig);
-    expand_check_nonoverlapping(&config, &input)
+    parse_macro_input!(attr as Nothing);
+    expand_check(&input)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
