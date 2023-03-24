@@ -70,6 +70,7 @@
 //! };
 //! ```
 mod bitwise;
+mod impls;
 mod iter;
 pub use bitbag_derive::{check, BitBaggable, BitOr};
 use num::{PrimInt, Zero as _};
@@ -92,19 +93,10 @@ pub trait BitBaggable: Sized + 'static {
 }
 
 /// Wraps a primitive, with helper methods for checking and setting flags.
-#[derive(Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct BitBag<PossibleFlagsT: BitBaggable> {
     pub repr: PossibleFlagsT::ReprT,
 }
-
-impl<PossibleFlagsT: BitBaggable> Clone for BitBag<PossibleFlagsT> {
-    fn clone(&self) -> Self {
-        Self { repr: self.repr }
-    }
-}
-
-impl<PossibleFlagsT: BitBaggable> Copy for BitBag<PossibleFlagsT> {}
 
 impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     /// Get a copy of the inner primitive
@@ -124,9 +116,14 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.repr.is_zero()
+    }
+
     pub fn is_set_raw(&self, raw: PossibleFlagsT::ReprT) -> bool {
         self.repr.bitand(raw) == raw
     }
+
     pub fn is_set(&self, flag: PossibleFlagsT) -> bool {
         self.is_set_raw(flag.into_repr())
     }
@@ -161,7 +158,7 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
         self.unset_raw(flag.into_repr())
     }
 
-    /// Check the bits of `prim`, and return an [`NonFlagBits`] error if it has bits set which aren't defined in the enum.
+    /// Check the bits of `prim`, and return a [`NonFlagBits`] error if it has bits set which aren't defined in the enum.
     pub fn new_strict(prim: PossibleFlagsT::ReprT) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
         match mask::<PossibleFlagsT>().bitor(prim) == mask::<PossibleFlagsT>() {
             true => Ok(Self { repr: prim }),
@@ -323,14 +320,5 @@ pub(crate) mod tests {
         assert_eq!("A | B", bitbag.to_string());
         let bitbag = BitBag::<FooFlags>::default();
         assert_eq!("<unset>", bitbag.to_string());
-    }
-
-    #[derive(BitBaggable)]
-    #[repr(u16)]
-    pub enum BadFlags {
-        A = 0b0000_0001,
-        B = 0b0000_0010,
-        C = 0b0000_0100,
-        D = 0b0000_1100,
     }
 }
