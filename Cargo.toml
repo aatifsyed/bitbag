@@ -1,1 +1,19 @@
-workspace.members = ["bitbag", "bitbag-derive"]
+[package]
+name = "bitbag"
+version = "0.2.1"
+edition = "2018"
+description = "A useful struct for dealing with bit flags"
+license = "MIT"
+repository = "https://github.com/aatifsyed/bitbag"
+documentation = "https://docs.rs/bitbag"
+authors = ["Aatif Syed <aatif@aatifsyed.uk>"]
+
+[dependencies]
+num = "0.4.0"
+bitbag-derive = { path = "bitbag-derive", version = "=0.2.1" }
+itertools = "0.10.5"
+
+[dev-dependencies]
+indoc = "1.0.8"
+
+[workspace]
