@@ -69,16 +69,18 @@
 //!     }
 //! };
 //! ```
+#![cfg_attr(not(feature = "std"), no_std)]
+
 mod bitwise;
 mod impls;
 mod iter;
 pub use bitbag_derive::{check, BitBaggable, BitOr};
-use num::{PrimInt, Zero as _};
-use std::{
+use core::{
     any::type_name,
     fmt::{self, Binary, Debug, Display},
     ops::{BitAnd as _, BitOr as _, BitXor as _, Not as _},
 };
+use num::{PrimInt, Zero as _};
 
 /// The trait that allows an enum to be placed inside a [`BitBag`].
 ///
@@ -201,6 +203,7 @@ impl<PossibleFlagsT: BitBaggable> NonFlagBits<PossibleFlagsT> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<PossibleFlagsT: BitBaggable> std::error::Error for NonFlagBits<PossibleFlagsT>
 where
     PossibleFlagsT::ReprT: Binary + Debug,
@@ -212,7 +215,7 @@ impl<PossibleFlagsT: BitBaggable> Display for NonFlagBits<PossibleFlagsT>
 where
     PossibleFlagsT::ReprT: Binary,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "The bits {:#b} are not accounted for in the enum {}",
@@ -272,6 +275,7 @@ impl<PossibleFlagsT: BitBaggable> fmt::Display for BitBag<PossibleFlagsT> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(feature = "std")]
     use std::collections::HashSet;
 
     use super::*;
@@ -286,6 +290,7 @@ pub(crate) mod tests {
         D = 0b0000_1000,
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn new_single_flag() {
         let bag = BitBag::<FooFlags>::new_strict(0b0000_0001).unwrap();
@@ -294,6 +299,7 @@ pub(crate) mod tests {
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn new_multiple_flags() {
         let bag = BitBag::<FooFlags>::new_strict(0b0000_1101).unwrap();
@@ -316,6 +322,7 @@ pub(crate) mod tests {
         assert!(matches!(res, Err(_)));
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn unchecked() {
         let bag = BitBag::<FooFlags>::new(0b1000_0001);
@@ -338,6 +345,7 @@ pub(crate) mod tests {
         assert_eq!(bag.get(), 0b0000_0010);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn display() {
         let bitbag = FooFlags::A | FooFlags::B;

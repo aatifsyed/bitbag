@@ -19,7 +19,7 @@ where
 pub struct BitBagIterator<PossibleFlagsT: BitBaggable> {
     bag: BitBag<PossibleFlagsT>,
     variant_iterator:
-        std::slice::Iter<'static, (&'static str, PossibleFlagsT, PossibleFlagsT::ReprT)>,
+        core::slice::Iter<'static, (&'static str, PossibleFlagsT, PossibleFlagsT::ReprT)>,
 }
 
 impl<PossibleFlagsT: BitBaggable> Iterator for BitBagIterator<PossibleFlagsT>
