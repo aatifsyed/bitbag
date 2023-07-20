@@ -1,4 +1,4 @@
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
+use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
 use crate::{BitBag, BitBaggable};
 

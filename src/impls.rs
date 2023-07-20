@@ -2,11 +2,11 @@
 //! So manually implement here.
 
 use crate::{BitBag, BitBaggable};
-use num::Zero as _;
-use std::{
+use core::{
     fmt::{self, Debug},
     hash::Hash,
 };
+use num::Zero as _;
 
 impl<PossibleFlagsT: BitBaggable> PartialEq for BitBag<PossibleFlagsT> {
     fn eq(&self, other: &Self) -> bool {
@@ -20,7 +20,7 @@ impl<PossibleFlagsT: BitBaggable> Hash for BitBag<PossibleFlagsT>
 where
     PossibleFlagsT::ReprT: Hash,
 {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.repr.hash(state);
     }
 }
