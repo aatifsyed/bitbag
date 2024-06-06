@@ -36,7 +36,7 @@ where
 
 impl<PossibleFlagsT: BitBaggable> Clone for BitBag<PossibleFlagsT> {
     fn clone(&self) -> Self {
-        Self { repr: self.repr }
+        *self
     }
 }
 

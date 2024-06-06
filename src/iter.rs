@@ -1,4 +1,12 @@
+use std::iter::FromIterator;
+
 use crate::{BitBag, BitBaggable};
+
+impl<PossibleFlagsT: BitBaggable> FromIterator<PossibleFlagsT> for BitBag<PossibleFlagsT> {
+    fn from_iter<T: IntoIterator<Item = PossibleFlagsT>>(iter: T) -> Self {
+        BitBag::empty().set_each(iter).build()
+    }
+}
 
 impl<PossibleFlagsT: BitBaggable> IntoIterator for BitBag<PossibleFlagsT>
 where

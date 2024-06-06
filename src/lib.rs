@@ -101,7 +101,7 @@ pub struct BitBag<PossibleFlagsT: BitBaggable> {
 /// Constructors
 impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     /// New bag, permitting (and preserving) unrecognised bits
-    pub const fn new(prim: PossibleFlagsT::ReprT) -> Self {
+    pub const fn new_unchecked(prim: PossibleFlagsT::ReprT) -> Self {
         Self { repr: prim }
     }
 
@@ -118,7 +118,7 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
     }
 
     /// Check the bits of `prim`, and return a [`NonFlagBits`] error if it has bits set which aren't defined in the enum.
-    pub fn new_strict(prim: PossibleFlagsT::ReprT) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
+    pub fn new_checked(prim: PossibleFlagsT::ReprT) -> Result<Self, NonFlagBits<PossibleFlagsT>> {
         match unrecognised_bits::<PossibleFlagsT>(prim) {
             Some(unrecognised) => Err(NonFlagBits { unrecognised }),
             None => Ok(Self { repr: prim }),
@@ -151,15 +151,6 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
 
 /// Builder
 impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
-    pub fn set(&mut self, flag: PossibleFlagsT) -> &mut Self {
-        self.set_raw(flag.into_repr())
-    }
-
-    pub fn set_raw(&mut self, raw: PossibleFlagsT::ReprT) -> &mut Self {
-        self.repr = self.repr.bitor(raw);
-        self
-    }
-
     pub fn set_all(&mut self) -> &mut Self {
         for (_, _, repr) in PossibleFlagsT::VARIANTS {
             self.set_raw(*repr);
@@ -172,8 +163,29 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
         self
     }
 
-    pub fn unset_raw(&mut self, raw: PossibleFlagsT::ReprT) -> &mut Self {
-        self.repr = self.repr.bitand(raw.not());
+    pub fn set(&mut self, flag: PossibleFlagsT) -> &mut Self {
+        self.set_raw(flag.into_repr())
+    }
+
+    pub fn set_raw(&mut self, raw: PossibleFlagsT::ReprT) -> &mut Self {
+        self.repr = self.repr.bitor(raw);
+        self
+    }
+
+    pub fn set_each(&mut self, flags: impl IntoIterator<Item = PossibleFlagsT>) -> &mut Self {
+        for flag in flags {
+            self.set(flag);
+        }
+        self
+    }
+
+    pub fn set_each_raw(
+        &mut self,
+        flags: impl IntoIterator<Item = PossibleFlagsT::ReprT>,
+    ) -> &mut Self {
+        for flag in flags {
+            self.set_raw(flag);
+        }
         self
     }
 
@@ -181,15 +193,88 @@ impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
         self.unset_raw(flag.into_repr())
     }
 
+    pub fn unset_raw(&mut self, raw: PossibleFlagsT::ReprT) -> &mut Self {
+        self.repr = self.repr.bitand(raw.not());
+        self
+    }
+
+    pub fn unset_each(&mut self, flags: impl IntoIterator<Item = PossibleFlagsT>) -> &mut Self {
+        for flag in flags {
+            self.unset(flag);
+        }
+        self
+    }
+
+    pub fn unset_each_raw(
+        &mut self,
+        flags: impl IntoIterator<Item = PossibleFlagsT::ReprT>,
+    ) -> &mut Self {
+        for flag in flags {
+            self.unset_raw(flag);
+        }
+        self
+    }
+
     /// Get a copy of the inner primitive
     pub const fn get(&self) -> PossibleFlagsT::ReprT {
         self.repr
+    }
+
+    pub const fn build(&self) -> Self {
+        *self
+    }
+}
+
+/// Set operations
+impl<PossibleFlagsT: BitBaggable> BitBag<PossibleFlagsT> {
+    /// A new bitbag with bits that are both in `self` and `other`
+    pub fn union(&self, other: impl IntoIterator<Item = PossibleFlagsT>) -> Self {
+        *self.clone().set_each(other)
+    }
+
+    /// A new bitbag with bits that are in `self` but not in `other`
+    pub fn difference(&self, other: impl IntoIterator<Item = PossibleFlagsT>) -> Self {
+        *self.clone().unset_each(other)
+    }
+
+    /// A new bitbag with bits that are in both `self` and `other`
+    pub fn intersection(&self, other: impl IntoIterator<Item = PossibleFlagsT>) -> Self
+    where
+        PossibleFlagsT: Clone,
+    {
+        let mut intersection = Self::empty();
+        for flag in other {
+            if self.is_set(flag.clone()) {
+                intersection.set(flag);
+            }
+        }
+        intersection
+    }
+
+    /// A new bitbag with bits that in are `self` or `other`, but not both
+    pub fn symmetric_difference(&self, other: impl IntoIterator<Item = PossibleFlagsT>) -> Self
+    where
+        PossibleFlagsT: Clone,
+    {
+        let mut difference = Self::empty();
+        let right = other.into_iter().collect::<Self>();
+        let left = *self;
+        for flag in left {
+            if !right.is_set(flag.clone()) {
+                difference.set(flag);
+            }
+        }
+        for flag in right {
+            if !left.is_set(flag.clone()) {
+                difference.set(flag);
+            }
+        }
+        difference
     }
 }
 
 /// The error returned when calling a [`BitBag`] from a primitive which contains bits set which aren't represented by flags
 #[derive(Debug)]
-#[non_exhaustive]
 pub struct NonFlagBits<PossibleFlagsT: BitBaggable> {
     unrecognised: PossibleFlagsT::ReprT,
 }
@@ -288,7 +373,7 @@ pub(crate) mod tests {
 
     #[test]
     fn new_single_flag() {
-        let bag = BitBag::<FooFlags>::new_strict(0b0000_0001).unwrap();
+        let bag = BitBag::<FooFlags>::new_checked(0b0000_0001).unwrap();
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
@@ -296,7 +381,7 @@ pub(crate) mod tests {
 
     #[test]
     fn new_multiple_flags() {
-        let bag = BitBag::<FooFlags>::new_strict(0b0000_1101).unwrap();
+        let bag = BitBag::<FooFlags>::new_checked(0b0000_1101).unwrap();
         let flags = bag.into_iter().collect::<HashSet<_>>();
         assert!(flags.len() == 3);
         assert!(flags.contains(&FooFlags::A));
@@ -306,19 +391,17 @@ pub(crate) mod tests {
 
     #[test]
     fn fail_new_single_non_flag() {
-        let res = BitBag::<FooFlags>::new_strict(0b1000_0000);
-        assert!(matches!(res, Err(_)));
+        BitBag::<FooFlags>::new_checked(0b1000_0000).unwrap_err();
     }
 
     #[test]
     fn fail_new_mixed() {
-        let res = BitBag::<FooFlags>::new_strict(0b1000_0001);
-        assert!(matches!(res, Err(_)));
+        BitBag::<FooFlags>::new_checked(0b1000_0001).unwrap_err();
     }
 
     #[test]
     fn unchecked() {
-        let bag = BitBag::<FooFlags>::new(0b1000_0001);
+        let bag = BitBag::<FooFlags>::new_unchecked(0b1000_0001);
         let mut flags = bag.into_iter().collect::<Vec<_>>();
         assert!(flags.len() == 1);
         assert!(matches!(flags.pop(), Some(FooFlags::A)));
@@ -333,7 +416,7 @@ pub(crate) mod tests {
 
     #[test]
     fn manually_unset() {
-        let mut bag = BitBag::<FooFlags>::new(0b0000_0011);
+        let mut bag = BitBag::<FooFlags>::new_unchecked(0b0000_0011);
         bag.unset(FooFlags::A);
         assert_eq!(bag.get(), 0b0000_0010);
     }

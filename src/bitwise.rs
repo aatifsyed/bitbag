@@ -84,7 +84,7 @@ mod rhs_is_bitbag {
         type Output = BitBag<PossibleFlagsT>;
 
         fn bitand(self, rhs: BitBag<PossibleFlagsT>) -> Self::Output {
-            Self::new(self.repr & rhs.repr)
+            Self::new_unchecked(self.repr & rhs.repr)
         }
     }
 
@@ -98,7 +98,7 @@ mod rhs_is_bitbag {
         type Output = BitBag<PossibleFlagsT>;
 
         fn bitor(self, rhs: BitBag<PossibleFlagsT>) -> Self::Output {
-            Self::new(self.repr | rhs.repr)
+            Self::new_unchecked(self.repr | rhs.repr)
         }
     }
 

@@ -15,3 +15,4 @@ bitbag-derive = { path = "bitbag-derive", version = "=0.2.1" }
 [dev-dependencies]
 
 [workspace]
+members = ["bitbag-derive"]
