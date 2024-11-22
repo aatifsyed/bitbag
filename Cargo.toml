@@ -1,6 +1,6 @@
 [package]
 name = "bitbag"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2018"
 description = "A useful struct for dealing with bit flags"
 license = "MIT"
@@ -9,7 +9,7 @@ documentation = "https://docs.rs/bitbag"
 authors = ["Aatif Syed <aatif@aatifsyed.uk>"]
 
 [dependencies]
-bitbag-derive = { path = "bitbag-derive", version = "=0.2.1" }
+bitbag-derive = { path = "bitbag-derive", version = "=0.3.0" }
 
 [features]
 default = ["std"]
