@@ -9,7 +9,7 @@ documentation = "https://docs.rs/bitbag"
 authors = ["Aatif Syed <aatif@aatifsyed.uk>"]
 
 [dependencies]
-bitbag-derive = { path = "bitbag-derive", version = "=0.3.0" }
+bitbag_derive = { path = "bitbag-derive", version = "=0.3.0" }
 
 [features]
 default = ["std"]

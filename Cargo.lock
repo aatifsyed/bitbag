@@ -15,13 +15,13 @@ dependencies = [
 name = "bitbag"
 version = "0.3.0"
 dependencies = [
- "bitbag-derive",
+ "bitbag_derive",
  "derive-quickcheck-arbitrary",
  "quickcheck",
 ]
 
 [[package]]
-name = "bitbag-derive"
+name = "bitbag_derive"
 version = "0.3.0"
 dependencies = [
  "proc-macro2",

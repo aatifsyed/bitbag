@@ -1,5 +1,5 @@
 [package]
-name = "bitbag-derive"
+name = "bitbag_derive"
 version = "0.3.0"
 edition = "2018"
 description = "Derive macros for the bitbag crate"
