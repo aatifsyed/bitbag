@@ -1,139 +1,76 @@
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
+use core::ops::{BitOr, BitOrAssign, Not};
 
-use crate::{BitBag, BitBaggable};
+use crate::{BitBag, Flags};
 
-// Unary
-impl<PossibleFlagsT: BitBaggable> Not for BitBag<PossibleFlagsT> {
-    type Output = BitBag<PossibleFlagsT>;
-
+/// Toggle only the _known_ flags.
+impl<FlagsT: Flags> Not for BitBag<FlagsT> {
+    type Output = BitBag<FlagsT>;
     fn not(self) -> Self::Output {
-        Self { repr: !self.repr }
+        Self(!self.repr() & FlagsT::ALL)
+    }
+}
+impl<FlagsT: Flags> Not for &BitBag<FlagsT> {
+    type Output = BitBag<FlagsT>;
+    fn not(self) -> Self::Output {
+        BitBag(!self.repr() & FlagsT::ALL)
     }
 }
 
 mod rhs_is_flag {
     use super::*;
 
-    impl<PossibleFlagsT: BitBaggable> BitAnd<PossibleFlagsT> for BitBag<PossibleFlagsT> {
-        type Output = BitBag<PossibleFlagsT>;
-
-        fn bitand(mut self, rhs: PossibleFlagsT) -> Self::Output {
-            let rhs = rhs.into_repr();
-            if self.is_set_raw(rhs) {
-                self.set_raw(rhs);
-            }
-            self
-        }
-    }
-
-    impl<PossibleFlagsT: BitBaggable> BitAndAssign<PossibleFlagsT> for BitBag<PossibleFlagsT> {
-        fn bitand_assign(&mut self, rhs: PossibleFlagsT) {
-            let rhs = rhs.into_repr();
-            if self.is_set_raw(rhs) {
-                self.set_raw(rhs);
-            }
-        }
-    }
-
-    impl<PossibleFlagsT: BitBaggable> BitOr<PossibleFlagsT> for BitBag<PossibleFlagsT> {
-        type Output = BitBag<PossibleFlagsT>;
-
-        fn bitor(mut self, rhs: PossibleFlagsT) -> Self::Output {
+    impl<FlagsT: Flags> BitOr<FlagsT> for BitBag<FlagsT> {
+        type Output = BitBag<FlagsT>;
+        fn bitor(mut self, rhs: FlagsT) -> Self::Output {
             self.set(rhs);
             self
         }
     }
-
-    impl<PossibleFlagsT: BitBaggable> BitOrAssign<PossibleFlagsT> for BitBag<PossibleFlagsT> {
-        fn bitor_assign(&mut self, rhs: PossibleFlagsT) {
+    impl<FlagsT: Flags> BitOrAssign<FlagsT> for BitBag<FlagsT> {
+        fn bitor_assign(&mut self, rhs: FlagsT) {
             self.set(rhs);
         }
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
+    #[test]
+    fn test() {
         use crate::tests::FooFlags::{self, *};
-
-        #[test]
-        fn test_or_assign() {
-            let mut bag = BitBag::<FooFlags>::default();
-            assert!(!bag.is_set(A));
-            bag |= A;
-            assert!(bag.is_set(A));
-        }
-
-        #[test]
-        fn test_and_assign() {
-            let mut bag = BitBag::<FooFlags>::default();
-            assert!(!bag.is_set(A));
-            bag &= A;
-            assert!(!bag.is_set(A));
-            bag.set(A);
-            assert!(bag.is_set(A));
-            bag &= A;
-            assert!(bag.is_set(A));
-        }
+        let mut bag = BitBag::<FooFlags>::default();
+        assert!(!bag.is_set(A));
+        bag |= A;
+        assert!(bag.is_set(A));
     }
 }
 
 mod rhs_is_bitbag {
     use super::*;
 
-    impl<PossibleFlagsT: BitBaggable> BitAnd<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
-        type Output = BitBag<PossibleFlagsT>;
-
-        fn bitand(self, rhs: BitBag<PossibleFlagsT>) -> Self::Output {
-            Self::new_unchecked(self.repr & rhs.repr)
+    /// Ignores unknown flags from the rhs
+    impl<FlagsT: Flags> BitOr<BitBag<FlagsT>> for BitBag<FlagsT> {
+        type Output = BitBag<FlagsT>;
+        fn bitor(mut self, rhs: BitBag<FlagsT>) -> Self::Output {
+            for flag in rhs {
+                self.set_raw(flag.to_repr());
+            }
+            self
         }
     }
 
-    impl<PossibleFlagsT: BitBaggable> BitAndAssign<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
-        fn bitand_assign(&mut self, rhs: BitBag<PossibleFlagsT>) {
-            *self = self.bitand(rhs);
+    /// Ignores unknown flags from the rhs
+    impl<FlagsT: Flags> BitOrAssign<BitBag<FlagsT>> for BitBag<FlagsT> {
+        fn bitor_assign(&mut self, rhs: BitBag<FlagsT>) {
+            *self = *self | rhs;
         }
     }
 
-    impl<PossibleFlagsT: BitBaggable> BitOr<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
-        type Output = BitBag<PossibleFlagsT>;
-
-        fn bitor(self, rhs: BitBag<PossibleFlagsT>) -> Self::Output {
-            Self::new_unchecked(self.repr | rhs.repr)
-        }
-    }
-
-    impl<PossibleFlagsT: BitBaggable> BitOrAssign<BitBag<PossibleFlagsT>> for BitBag<PossibleFlagsT> {
-        fn bitor_assign(&mut self, rhs: BitBag<PossibleFlagsT>) {
-            *self = self.bitor(rhs);
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
+    #[test]
+    fn test() {
         use crate::tests::FooFlags::{self, *};
-
-        #[test]
-        fn test_or_assign() {
-            let mut bag1 = BitBag::<FooFlags>::default();
-            let bag2 = *BitBag::<FooFlags>::default().set(A);
-            assert!(!bag1.is_set(A));
-            bag1 |= bag2;
-            assert!(bag1.is_set(A));
-        }
-
-        #[test]
-        fn test_and_assign() {
-            let mut bag1 = BitBag::<FooFlags>::default();
-            let bag2 = *BitBag::<FooFlags>::default().set(A);
-            assert!(!bag1.is_set(A));
-            bag1 &= bag2;
-            assert!(!bag1.is_set(A));
-            bag1.set(A);
-            assert!(bag1.is_set(A));
-            bag1 &= bag2;
-            assert!(bag1.is_set(A));
-        }
+        let mut bag1 = BitBag::<FooFlags>::default();
+        let bag2 = *BitBag::<FooFlags>::default().set(A);
+        assert!(!bag1.is_set(A));
+        bag1 |= bag2;
+        assert!(bag1.is_set(A));
     }
 }
 #[cfg(test)]

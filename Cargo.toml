@@ -9,10 +9,15 @@ documentation = "https://docs.rs/bitbag"
 authors = ["Aatif Syed <aatif@aatifsyed.uk>"]
 
 [dependencies]
-num = "0.4.0"
 bitbag-derive = { path = "bitbag-derive", version = "=0.2.1" }
 
+[features]
+default = ["std"]
+std = []
+
 [dev-dependencies]
+derive-quickcheck-arbitrary = "0.1.3"
+quickcheck = "1.0.3"
 
 [workspace]
 members = ["bitbag-derive"]

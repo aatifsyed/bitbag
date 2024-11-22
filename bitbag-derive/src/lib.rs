@@ -5,10 +5,10 @@ use syn::{
     parse_macro_input, DataEnum, DeriveInput, Fields, Ident, LitStr,
 };
 
-#[proc_macro_derive(BitBaggable)]
-pub fn derive_bitbaggable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_derive(Flags)]
+pub fn derive_flags(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let user_struct = parse_macro_input!(input as DeriveInput);
-    expand_bitbaggable(&user_struct)
+    expand_flags(&user_struct)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
@@ -97,8 +97,10 @@ fn get_repr_ident(input: &DeriveInput) -> syn::Result<ReprIntIdent> {
 
 fn extract_enum_and_repr(input: &DeriveInput) -> syn::Result<(&DataEnum, ReprIntIdent)> {
     let syn::Data::Enum(data) = &input.data else {
-        return Err(
-        syn::Error::new_spanned(input, "bitbag: only enums are supported"));
+        return Err(syn::Error::new_spanned(
+            input,
+            "bitbag: only enums are supported",
+        ));
     };
     let repr = get_repr_ident(input)?;
 
@@ -122,28 +124,31 @@ fn extract_enum_and_repr(input: &DeriveInput) -> syn::Result<(&DataEnum, ReprInt
     }
 }
 
-fn expand_bitbaggable(input: &DeriveInput) -> syn::Result<TokenStream> {
+fn expand_flags(input: &DeriveInput) -> syn::Result<TokenStream> {
     let (data, repr) = extract_enum_and_repr(input)?;
     let user_ident = &input.ident;
     let names_and_values = data.variants.iter().map(|variant| {
         let ident = &variant.ident;
         let name = syn::LitStr::new(&ident.to_string(), ident.span());
         quote! {
-            (#name, Self::#ident, Self::#ident as _)
+            (#name, Self::#ident, Self::#ident as Self::Repr)
         }
     });
+    let idents = data.variants.iter().map(|it| &it.ident);
+
+    let name = syn::LitStr::new(&user_ident.to_string(), user_ident.span());
 
     Ok(quote! {
-        #[automatically_derived]
-        impl bitbag::BitBaggable for #user_ident {
-            type ReprT = #repr;
-            fn into_repr(self) -> Self::ReprT {
-                self as #repr
+        impl bitbag::Flags for #user_ident {
+            type Repr = #repr;
+            fn to_repr(&self) -> Self::Repr {
+                unsafe { *<*const _>::from(self).cast() }
             }
-            const VARIANTS: &'static [(&'static str, Self, Self::ReprT)] = &[
+            const VARIANTS: &'static [(&'static str, Self, Self::Repr)] = &[
                     #(#names_and_values,)*
                 ];
-
+            const NAME: &str = #name;
+            const ALL: Self::Repr = #(Self::#idents as Self::Repr|)* 0;
         }
     })
 }
@@ -154,7 +159,7 @@ fn expand_bitor(input: &DeriveInput) -> syn::Result<TokenStream> {
         #[automatically_derived]
         impl core::ops::BitOr<Self> for #user_ident
         where
-            Self: bitbag::BitBaggable,
+            Self: bitbag::Flags,
         {
             type Output = bitbag::BitBag<Self>;
             fn bitor(self, rhs: Self) -> Self::Output {
@@ -167,7 +172,7 @@ fn expand_bitor(input: &DeriveInput) -> syn::Result<TokenStream> {
         #[automatically_derived]
         impl core::ops::BitOr<bitbag::BitBag<Self>> for #user_ident
         where
-            Self: bitbag::BitBaggable,
+            Self: bitbag::Flags,
         {
             type Output = bitbag::BitBag<Self>;
             fn bitor(self, mut rhs: bitbag::BitBag<Self>) -> Self::Output {

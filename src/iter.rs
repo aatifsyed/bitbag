@@ -1,47 +1,38 @@
-use std::iter::FromIterator;
+use crate::{BitBag, Flags};
 
-use crate::{BitBag, BitBaggable};
-
-impl<PossibleFlagsT: BitBaggable> FromIterator<PossibleFlagsT> for BitBag<PossibleFlagsT> {
-    fn from_iter<T: IntoIterator<Item = PossibleFlagsT>>(iter: T) -> Self {
+impl<FlagsT: Flags> core::iter::FromIterator<FlagsT> for BitBag<FlagsT> {
+    fn from_iter<T: IntoIterator<Item = FlagsT>>(iter: T) -> Self {
         BitBag::empty().set_each(iter).build()
     }
 }
 
-impl<PossibleFlagsT: BitBaggable> IntoIterator for BitBag<PossibleFlagsT>
-where
-    PossibleFlagsT: Clone,
-{
-    type Item = PossibleFlagsT;
-
-    type IntoIter = BitBagIterator<PossibleFlagsT>;
-
+impl<FlagsT: Flags> IntoIterator for BitBag<FlagsT> {
+    type Item = &'static FlagsT;
+    type IntoIter = BitBagIterator<FlagsT>;
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter {
             bag: self,
-            variant_iterator: PossibleFlagsT::VARIANTS.iter(),
+            variant_iterator: FlagsT::VARIANTS.iter(),
         }
     }
 }
 
-pub struct BitBagIterator<PossibleFlagsT: BitBaggable> {
-    bag: BitBag<PossibleFlagsT>,
-    variant_iterator:
-        std::slice::Iter<'static, (&'static str, PossibleFlagsT, PossibleFlagsT::ReprT)>,
+#[derive(Debug, Clone)]
+pub struct BitBagIterator<FlagsT: Flags> {
+    bag: BitBag<FlagsT>,
+    variant_iterator: core::slice::Iter<'static, (&'static str, FlagsT, FlagsT::Repr)>,
 }
 
-impl<PossibleFlagsT: BitBaggable> Iterator for BitBagIterator<PossibleFlagsT>
-where
-    PossibleFlagsT: Clone,
-{
-    type Item = PossibleFlagsT;
-
+impl<FlagsT: Flags> Iterator for BitBagIterator<FlagsT> {
+    type Item = &'static FlagsT;
     fn next(&mut self) -> Option<Self::Item> {
-        for (_, value, _) in self.variant_iterator.by_ref() {
-            if self.bag.is_set(value.clone()) {
-                return Some(value.clone());
-            }
-        }
-        None
+        let Self {
+            bag,
+            variant_iterator,
+        } = self;
+        variant_iterator
+            .by_ref()
+            .map(|(_, value, _)| value)
+            .find(|&value| bag.is_set_raw(value.to_repr()))
     }
 }
